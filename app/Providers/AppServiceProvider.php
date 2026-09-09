@@ -14,7 +14,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->bind(
             \App\Services\Notifications\WhatsAppNotificationService::class,
-            \App\Services\Notifications\GenericWhatsAppProvider::class
+            \App\Services\Notifications\WhatsappService::class
         );
     }
 
@@ -25,5 +25,12 @@ class AppServiceProvider extends ServiceProvider
     {
         // Enforce relative paths for all Vite assets to prevent port/origin mismatch and CORS issues
         Vite::createAssetPathsUsing(fn ($path) => '/' . ltrim($path, '/'));
+
+        // Dynamically apply custom SMTP settings if configured in database
+        try {
+            $this->app->make(\App\Services\Notifications\MailNotificationService::class)->configureMailer();
+        } catch (\Throwable $e) {
+            // Ignore during early migrations / CLI setup
+        }
     }
 }

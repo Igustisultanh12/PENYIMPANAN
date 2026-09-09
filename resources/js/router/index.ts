@@ -13,6 +13,7 @@ import TrashPage from '@/pages/TrashPage.vue';
 import StoragePage from '@/pages/StoragePage.vue';
 import SecurityPage from '@/pages/SecurityPage.vue';
 import SettingsPage from '@/pages/SettingsPage.vue';
+import AdminSettingsPage from '@/pages/AdminSettingsPage.vue';
 
 const routes: RouteRecordRaw[] = [
     {
@@ -87,6 +88,11 @@ const routes: RouteRecordRaw[] = [
                 path: 'settings',
                 name: 'settings',
                 component: SettingsPage,
+            },
+            {
+                path: 'admin/settings',
+                name: 'admin-settings',
+                component: AdminSettingsPage,
             },
         ],
     },

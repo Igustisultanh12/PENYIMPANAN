@@ -15,6 +15,7 @@ import {
     Database,
     ShieldCheck,
     Settings,
+    Server,
     Cloud,
     FolderPlus,
     UploadCloud,
@@ -41,16 +42,24 @@ onMounted(() => {
     loadStorage();
 });
 
-const navItems = computed(() => [
-    { name: t('nav.drive'), path: '/drive', icon: HardDrive },
-    { name: t('nav.recent'), path: '/recent', icon: Clock },
-    { name: t('nav.starred'), path: '/starred', icon: Star },
-    { name: t('nav.shared'), path: '/shared', icon: Users },
-    { name: t('nav.trash'), path: '/trash', icon: Trash2 },
-    { name: t('nav.storage'), path: '/storage', icon: Database },
-    { name: t('nav.security'), path: '/security', icon: ShieldCheck },
-    { name: t('nav.settings'), path: '/settings', icon: Settings },
-]);
+const navItems = computed(() => {
+    const items = [
+        { name: t('nav.drive'), path: '/drive', icon: HardDrive },
+        { name: t('nav.recent'), path: '/recent', icon: Clock },
+        { name: t('nav.starred'), path: '/starred', icon: Star },
+        { name: t('nav.shared'), path: '/shared', icon: Users },
+        { name: t('nav.trash'), path: '/trash', icon: Trash2 },
+        { name: t('nav.storage'), path: '/storage', icon: Database },
+        { name: t('nav.security'), path: '/security', icon: ShieldCheck },
+        { name: t('nav.settings'), path: '/settings', icon: Settings },
+    ];
+
+    if (auth.user?.role === 'admin' || auth.user?.role === 'super_admin') {
+        items.push({ name: 'Admin Gateway', path: '/admin/settings', icon: Server });
+    }
+
+    return items;
+});
 
 const usedFormatted = computed(() => storageStats.value?.human_readable?.used || '0 B');
 const quotaFormatted = computed(() => storageStats.value?.human_readable?.quota || '10 GB');

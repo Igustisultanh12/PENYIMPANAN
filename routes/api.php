@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Admin\AdminSettingController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\DeviceController;
 use App\Http\Controllers\Api\V1\FileController;
@@ -43,6 +44,15 @@ Route::prefix('v1')->group(function () {
         // Session & Auth Profile
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::get('me', [AuthController::class, 'me']);
+
+        // Administrative Management Routes
+        Route::prefix('admin')->group(function () {
+            Route::get('settings', [AdminSettingController::class, 'getSettings']);
+            Route::post('settings', [AdminSettingController::class, 'updateSettings']);
+            Route::get('whatsapp/status', [AdminSettingController::class, 'getWhatsAppStatus']);
+            Route::post('whatsapp/test', [AdminSettingController::class, 'testWhatsApp']);
+            Route::post('mail/test', [AdminSettingController::class, 'testMail']);
+        });
 
         // Storage & Drive Endpoints (Requires Verified Email)
         Route::middleware(['email.verified'])->group(function () {
