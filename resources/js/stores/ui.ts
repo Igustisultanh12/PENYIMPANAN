@@ -3,28 +3,39 @@ import { ref } from 'vue';
 import type { ToastMessage } from '@/types';
 
 export const useUiStore = defineStore('ui', () => {
-    const isDarkMode = ref(localStorage.getItem('theme') === 'dark');
+    const isDarkMode = ref(
+        typeof window !== 'undefined' &&
+        (localStorage.getItem('theme') === 'dark' ||
+         (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches))
+    );
     const isSidebarCollapsed = ref(false);
     const toasts = ref<ToastMessage[]>([]);
 
-    function toggleDarkMode() {
-        isDarkMode.value = !isDarkMode.value;
-        if (isDarkMode.value) {
-            document.documentElement.classList.add('dark');
-            localStorage.setItem('theme', 'dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-            localStorage.setItem('theme', 'light');
+    function applyTheme(dark: boolean) {
+        isDarkMode.value = dark;
+        if (typeof document !== 'undefined') {
+            if (dark) {
+                document.documentElement.classList.add('dark');
+                document.body?.classList.add('dark');
+                localStorage.setItem('theme', 'dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+                document.body?.classList.remove('dark');
+                localStorage.setItem('theme', 'light');
+            }
         }
     }
 
+    function toggleDarkMode() {
+        applyTheme(!isDarkMode.value);
+    }
+
     function initTheme() {
-        if (isDarkMode.value || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            document.documentElement.classList.add('dark');
-            isDarkMode.value = true;
+        const storedTheme = typeof localStorage !== 'undefined' ? localStorage.getItem('theme') : null;
+        if (storedTheme === 'dark' || (!storedTheme && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            applyTheme(true);
         } else {
-            document.documentElement.classList.remove('dark');
-            isDarkMode.value = false;
+            applyTheme(false);
         }
     }
 
