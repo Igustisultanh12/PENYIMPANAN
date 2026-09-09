@@ -26,7 +26,7 @@ function openFolder() {
 <template>
     <div
         @dblclick="openFolder"
-        class="group relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 flex items-center justify-between gap-3 hover:shadow-md hover:border-blue-400 dark:hover:border-blue-600 transition-all cursor-pointer select-none"
+        class="group relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 flex items-center justify-between gap-3 card-hover-lift hover:border-blue-500/60 dark:hover:border-blue-500/60 transition-all duration-300 cursor-pointer select-none"
     >
         <div class="flex items-center gap-3.5 min-w-0">
             <div

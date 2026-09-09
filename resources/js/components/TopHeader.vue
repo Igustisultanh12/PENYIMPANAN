@@ -20,6 +20,7 @@ import {
     ChevronDown,
     X,
 } from 'lucide-vue-next';
+import ThemeToggle from '@/components/ThemeToggle.vue';
 
 const router = useRouter();
 const auth = useAuthStore();
@@ -110,15 +111,8 @@ function clearSearch() {
                 <span class="hidden sm:inline">{{ t('action.upload') }}</span>
             </button>
 
-            <!-- Theme Toggle -->
-            <button
-                @click="ui.toggleDarkMode"
-                class="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                title="Toggle Dark Mode"
-            >
-                <Sun v-if="ui.isDarkMode" class="w-4 h-4 text-amber-400" />
-                <Moon v-else class="w-4 h-4 text-slate-600" />
-            </button>
+            <!-- Theme Toggle Component with Animations -->
+            <ThemeToggle variant="icon" />
 
             <!-- Locale Toggle -->
             <button

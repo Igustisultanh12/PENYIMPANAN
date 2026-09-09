@@ -64,7 +64,7 @@ const previewUrl = computed(() => {
 <template>
     <div
         @dblclick="emit('preview', file)"
-        class="group relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-hidden hover:shadow-md hover:border-blue-400 dark:hover:border-blue-600 transition-all flex flex-col select-none cursor-pointer"
+        class="group relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-hidden card-hover-lift hover:border-blue-500/60 dark:hover:border-blue-500/60 transition-all duration-300 flex flex-col select-none cursor-pointer"
     >
         <!-- Preview Area -->
         <div class="h-36 bg-slate-100/70 dark:bg-slate-800/50 flex items-center justify-center relative overflow-hidden">

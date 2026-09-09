@@ -32,3 +32,90 @@
 .dark ::-webkit-scrollbar-thumb:hover {
     background: rgba(75, 85, 99, 0.7);
 }
+
+/* Smooth Theme Transitions */
+html, body, div, header, aside, main, nav, section, article {
+    transition: background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                color 0.15s ease-out,
+                box-shadow 0.25s ease-out;
+}
+
+/* Keyframe Animations */
+@keyframes float-slow {
+    0%, 100% {
+        transform: translateY(0px) rotate(0deg);
+    }
+    50% {
+        transform: translateY(-15px) rotate(2deg);
+    }
+}
+
+@keyframes float-reverse {
+    0%, 100% {
+        transform: translateY(0px) rotate(0deg);
+    }
+    50% {
+        transform: translateY(12px) rotate(-2deg);
+    }
+}
+
+@keyframes pulse-glow {
+    0%, 100% {
+        opacity: 0.4;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.7;
+        transform: scale(1.08);
+    }
+}
+
+@keyframes modal-pop {
+    0% {
+        opacity: 0;
+        transform: scale(0.94) translateY(8px);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: -200% 0;
+    }
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+/* Custom Animation Utility Classes */
+.animate-float-slow {
+    animation: float-slow 7s ease-in-out infinite;
+}
+
+.animate-float-reverse {
+    animation: float-reverse 8s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+    animation: pulse-glow 5s ease-in-out infinite;
+}
+
+.animate-modal-pop {
+    animation: modal-pop 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Modern Card Hover Effects */
+.card-hover-lift {
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.card-hover-lift:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px -10px rgba(59, 130, 246, 0.18);
+}
+.dark .card-hover-lift:hover {
+    box-shadow: 0 12px 28px -10px rgba(99, 102, 241, 0.25);
+}

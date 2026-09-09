@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { useUiStore } from '@/stores/ui';
-import { Settings, User as UserIcon, Globe, Smartphone, Mail } from 'lucide-vue-next';
+import { Settings, User as UserIcon, Globe, Smartphone, Mail, Sun, Moon } from 'lucide-vue-next';
 
 const auth = useAuthStore();
 const ui = useUiStore();
@@ -26,6 +26,12 @@ onMounted(() => {
 
 function handleSave() {
     ui.notify('Profil Anda berhasil diperbarui.', 'success');
+}
+
+function setDarkMode(val: boolean) {
+    if (ui.isDarkMode !== val) {
+        ui.toggleDarkMode();
+    }
 }
 </script>
 
@@ -105,6 +111,42 @@ function handleSave() {
                             <option value="id">Bahasa Indonesia</option>
                             <option value="en">English</option>
                         </select>
+                    </div>
+                </div>
+
+                <!-- Theme Appearance Setting -->
+                <div class="pt-3 border-t border-slate-100 dark:border-slate-800">
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">Tema Tampilan (Dark / Light Mode)</label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <button
+                            type="button"
+                            @click="setDarkMode(false)"
+                            class="p-3.5 rounded-2xl border flex items-center gap-3 transition-all duration-300 text-left"
+                            :class="!ui.isDarkMode ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/30 text-blue-600 ring-2 ring-blue-500/20' : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-slate-700 dark:text-slate-300'"
+                        >
+                            <div class="w-8 h-8 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center shadow-xs">
+                                <Sun class="w-4 h-4" />
+                            </div>
+                            <div>
+                                <p class="text-xs font-bold">Mode Terang</p>
+                                <p class="text-[10px] text-slate-400">Tampilan bersih & cerah</p>
+                            </div>
+                        </button>
+
+                        <button
+                            type="button"
+                            @click="setDarkMode(true)"
+                            class="p-3.5 rounded-2xl border flex items-center gap-3 transition-all duration-300 text-left"
+                            :class="ui.isDarkMode ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/30 text-blue-400 ring-2 ring-blue-500/20' : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-slate-700 dark:text-slate-300'"
+                        >
+                            <div class="w-8 h-8 rounded-xl bg-indigo-950 text-indigo-400 flex items-center justify-center shadow-xs">
+                                <Moon class="w-4 h-4" />
+                            </div>
+                            <div>
+                                <p class="text-xs font-bold">Mode Gelap</p>
+                                <p class="text-[10px] text-slate-400">Nyaman di mata saat malam</p>
+                            </div>
+                        </button>
                     </div>
                 </div>
 
