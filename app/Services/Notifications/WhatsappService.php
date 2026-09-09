@@ -155,6 +155,7 @@ class WhatsappService implements WhatsAppNotificationService
                     'status' => $isOnline ? 'ONLINE' : ($rawStatus === 'WAITING_SCAN' ? 'WAITING_SCAN' : $rawStatus),
                     'connected' => $isOnline,
                     'qr' => $data['qr'] ?? null,
+                    'raw_qr' => $data['raw_qr'] ?? null,
                     'details' => $data,
                 ];
             }
@@ -163,6 +164,7 @@ class WhatsappService implements WhatsAppNotificationService
                 'status' => 'ERROR',
                 'connected' => false,
                 'qr' => null,
+                'raw_qr' => null,
                 'message' => 'Gateway merespon HTTP ' . $response->status(),
             ];
         } catch (\Throwable $e) {
@@ -183,5 +185,30 @@ class WhatsappService implements WhatsAppNotificationService
         $message = $customMessage ?: "🧪 *UJI COBA GATEWAY WHATSAPP MYSTORAGE*\n\nHalo Administrator!\nKoneksi Gateway WhatsApp server Anda berhasil terhubung dan berfungsi dengan 100% normal.\n\n_Waktu: " . now()->format('d M Y H:i:s') . " WIB_";
 
         return $this->send($targetPhone, $message);
+    }
+
+    /**
+     * Reset WhatsApp gateway session (logout & trigger fresh QR code generation).
+     */
+    public function resetSession(): array
+    {
+        $baseUrl = $this->getGatewayUrl();
+
+        try {
+            $response = Http::timeout(10)->post("{$baseUrl}/reset-session");
+            if (!$response->successful()) {
+                $response = Http::timeout(10)->get("{$baseUrl}/reset-session");
+            }
+
+            return [
+                'status' => $response->successful(),
+                'message' => $response->json('message') ?? 'Sesi WhatsApp berhasil di-reset.',
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'status' => false,
+                'message' => 'Gagal menghubungi gateway: ' . $e->getMessage(),
+            ];
+        }
     }
 }

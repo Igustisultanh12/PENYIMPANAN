@@ -12,6 +12,7 @@ const qrcodeTerminal = require('qrcode-terminal');
 
 const PORT = process.env.PORT || 3000;
 let latestQR = null;
+let latestRawQR = null;
 let connectionStatus = 'OFFLINE';
 let globalSock = null;
 
@@ -56,6 +57,7 @@ async function connectToWhatsApp() {
 
             if (qr) {
                 connectionStatus = 'WAITING_SCAN';
+                latestRawQR = qr;
                 console.log('\n🚀 QR Code Baru Terdeteksi!');
                 console.log('📱 Scan QR Code di bawah ini melalui WhatsApp di HP Anda:\n');
                 
@@ -68,7 +70,7 @@ async function connectToWhatsApp() {
 
                 // Konversi QR string ke Data URL Base64 untuk Dashboard Web Admin
                 try {
-                    latestQR = await QRCode.toDataURL(qr);
+                    latestQR = await QRCode.toDataURL(qr, { width: 300, margin: 2 });
                 } catch (e) {
                     latestQR = qr;
                 }
@@ -77,6 +79,7 @@ async function connectToWhatsApp() {
             if (connection === 'close') {
                 connectionStatus = 'OFFLINE';
                 latestQR = null;
+                latestRawQR = null;
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
@@ -91,6 +94,7 @@ async function connectToWhatsApp() {
             } else if (connection === 'open') {
                 connectionStatus = 'ONLINE';
                 latestQR = null;
+                latestRawQR = null;
                 console.log('\n✅ GATEWAY WHATSAPP LIVE & TERHUBUNG!\n');
             }
         });
@@ -137,8 +141,44 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({
             status: connectionStatus,
             connected: connectionStatus === 'ONLINE',
-            qr: latestQR
+            qr: latestQR,
+            raw_qr: latestRawQR
         }));
+        return;
+    }
+
+    // Reset Session / Logout endpoint (Memutus sesi dan generate QR baru tanpa terminal)
+    if (parsedUrl.pathname === '/reset-session' || parsedUrl.pathname === '/logout') {
+        try {
+            console.log('🔄 Permintaan reset sesi diterima dari Dashboard Admin...');
+            if (globalSock) {
+                try { await globalSock.logout(); } catch (_) {}
+                try { globalSock.end(undefined); } catch (_) {}
+            }
+            globalSock = null;
+            connectionStatus = 'WAITING_SCAN';
+            latestQR = null;
+            latestRawQR = null;
+
+            const fs = require('fs');
+            const path = require('path');
+            const authPath = path.join(__dirname, 'auth_info_baileys');
+            if (fs.existsSync(authPath)) {
+                fs.rmSync(authPath, { recursive: true, force: true });
+                console.log('🗑️  Folder auth_info_baileys berhasil dibersihkan.');
+            }
+
+            setTimeout(() => connectToWhatsApp(), 1500);
+
+            res.end(JSON.stringify({
+                status: 'success',
+                message: 'Sesi WhatsApp berhasil di-reset. QR Code baru sedang dimuat.'
+            }));
+        } catch (err) {
+            console.error('❌ Gagal mereset sesi WhatsApp:', err.message);
+            res.writeHead(500);
+            res.end(JSON.stringify({ status: 'error', message: err.message }));
+        }
         return;
     }
 

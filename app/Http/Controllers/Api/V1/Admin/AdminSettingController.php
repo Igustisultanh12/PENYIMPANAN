@@ -169,4 +169,21 @@ class AdminSettingController extends Controller
             'message' => $res['message'] ?? ($isSuccess ? 'Email uji coba berhasil dikirim.' : 'Gagal mengirim email uji coba.'),
         ], $isSuccess ? 200 : 422);
     }
+
+    /**
+     * Reset WhatsApp session (trigger fresh QR code).
+     */
+    public function resetWhatsAppSession(Request $request): JsonResponse
+    {
+        if ($deny = $this->authorizeAdmin($request)) {
+            return $deny;
+        }
+
+        $res = app(WhatsappService::class)->resetSession();
+
+        return response()->json([
+            'success' => $res['status'] ?? false,
+            'message' => $res['message'] ?? 'Permintaan reset sesi WhatsApp berhasil dikirim.',
+        ]);
+    }
 }

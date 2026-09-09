@@ -146,4 +146,22 @@ class AdminSettingsTest extends TestCase
                 'success' => true,
             ]);
     }
+
+    public function test_reset_whatsapp_session(): void
+    {
+        Http::fake([
+            'http://127.0.0.1:3000/reset-session' => Http::response([
+                'status' => 'success',
+                'message' => 'Sesi di-reset',
+            ], 200),
+        ]);
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->postJson('/api/v1/admin/whatsapp/reset');
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'success' => true,
+            ]);
+    }
 }

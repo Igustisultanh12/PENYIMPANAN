@@ -26,4 +26,5 @@ Thumbs.db
 /database/database.sqlite
 /database/database.sqlite-shm
 /database/database.sqlite-wal
+*.zip
 

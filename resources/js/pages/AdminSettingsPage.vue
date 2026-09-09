@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
+import QrcodeVue from 'qrcode.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useUiStore } from '@/stores/ui';
 import http from '@/utils/http';
@@ -18,6 +19,9 @@ import {
     ExternalLink,
     Shield,
     QrCode,
+    LogOut,
+    Smartphone,
+    Trash2,
 } from 'lucide-vue-next';
 
 const auth = useAuthStore();
@@ -35,9 +39,12 @@ const waStatus = ref<{
     status: string;
     connected?: boolean;
     qr?: string | null;
+    raw_qr?: string | null;
     message?: string;
 } | null>(null);
 const isCheckingWa = ref(false);
+const isResettingSession = ref(false);
+let waPollTimer: any = null;
 
 // WhatsApp Test State
 const waTestPhone = ref('');
@@ -61,6 +68,10 @@ const isSendingMailTest = ref(false);
 const isConnected = computed(() => {
     return waStatus.value?.status === 'ONLINE' && waStatus.value?.connected !== false;
 });
+
+function isDataUrl(str?: string | null): boolean {
+    return !!str && str.startsWith('data:image/');
+}
 
 async function loadSettings() {
     isLoading.value = true;
@@ -93,8 +104,8 @@ async function loadSettings() {
     }
 }
 
-async function checkWhatsAppStatus() {
-    isCheckingWa.value = true;
+async function checkWhatsAppStatus(silent = false) {
+    if (!silent) isCheckingWa.value = true;
     try {
         const res = await http.get('/admin/whatsapp/status');
         waStatus.value = res.data.data;
@@ -105,7 +116,25 @@ async function checkWhatsAppStatus() {
             message: err.response?.data?.message || 'Tidak dapat menghubungi server backend.',
         };
     } finally {
-        isCheckingWa.value = false;
+        if (!silent) isCheckingWa.value = false;
+    }
+}
+
+async function handleResetSession() {
+    if (!confirm('Putus sesi WhatsApp saat ini dan generate QR Code baru untuk scan ulang?')) {
+        return;
+    }
+
+    isResettingSession.value = true;
+    try {
+        const res = await http.post('/admin/whatsapp/reset');
+        ui.notify(res.data.message || 'Sesi di-reset. Menyiapkan QR Code baru...', 'info');
+        waStatus.value = { status: 'WAITING_SCAN', connected: false, qr: null };
+        setTimeout(() => checkWhatsAppStatus(false), 2000);
+    } catch (err: any) {
+        ui.notify(err.response?.data?.message || 'Gagal mereset sesi WhatsApp.', 'error');
+    } finally {
+        isResettingSession.value = false;
     }
 }
 
@@ -129,7 +158,7 @@ async function saveAllSettings() {
         ui.notify(res.data.message || 'Pengaturan berhasil disimpan!', 'success');
 
         // Refresh WhatsApp Status check
-        checkWhatsAppStatus();
+        checkWhatsAppStatus(false);
     } catch (err: any) {
         ui.notify(err.response?.data?.message || 'Gagal menyimpan konfigurasi.', 'error');
     } finally {
@@ -180,7 +209,18 @@ async function sendMailTest() {
 
 onMounted(() => {
     loadSettings();
-    checkWhatsAppStatus();
+    checkWhatsAppStatus(false);
+
+    // Auto-poll WhatsApp status every 3 seconds while on WhatsApp tab and not yet connected
+    waPollTimer = setInterval(() => {
+        if (activeTab.value === 'whatsapp' && !isConnected.value) {
+            checkWhatsAppStatus(true);
+        }
+    }, 3000);
+});
+
+onUnmounted(() => {
+    if (waPollTimer) clearInterval(waPollTimer);
 });
 </script>
 
@@ -290,16 +330,87 @@ onMounted(() => {
                     </div>
                 </div>
 
-                <!-- QR Code Viewer if Available -->
-                <div v-if="waStatus?.qr" class="mt-4 p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 flex flex-col items-center gap-3 text-center">
-                    <div class="flex items-center gap-2 text-amber-800 dark:text-amber-300 font-semibold text-xs">
-                        <QrCode class="w-4 h-4" />
-                        Pindai QR Code WhatsApp untuk Menghubungkan Sesi Gateway
+                <!-- Connected State Card -->
+                <div v-if="isConnected" class="mt-4 p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                            <CheckCircle2 class="w-5 h-5" />
+                        </div>
+                        <div>
+                            <span class="block text-xs font-bold text-emerald-900 dark:text-emerald-200">
+                                WhatsApp Gateway Aktif & Terhubung
+                            </span>
+                            <span class="text-[11px] text-emerald-700 dark:text-emerald-400">
+                                Sistem siap mengirimkan pesan otomatis ke nomor WhatsApp pengguna.
+                            </span>
+                        </div>
                     </div>
-                    <img :src="waStatus.qr" alt="WhatsApp Gateway QR Code" class="w-52 h-52 p-2 bg-white rounded-xl shadow-md" />
-                    <p class="text-[11px] text-amber-700 dark:text-amber-400">
-                        Buka aplikasi WhatsApp di HP Anda > Menu Tiga Titik / Pengaturan > Perangkat Tertaut > Tautkan Perangkat.
+                    <button
+                        @click="handleResetSession"
+                        :disabled="isResettingSession"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 text-[11px] font-semibold text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all shrink-0"
+                    >
+                        <LogOut class="w-3.5 h-3.5" />
+                        <span>Putus Sesi / Ganti Nomor</span>
+                    </button>
+                </div>
+
+                <!-- QR Code Activation Scanner (Bisa langsung di-scan di Pengaturan) -->
+                <div
+                    v-else-if="waStatus?.qr || waStatus?.raw_qr"
+                    class="mt-5 p-6 rounded-2xl bg-white dark:bg-slate-900 border-2 border-emerald-500/40 shadow-lg flex flex-col items-center text-center space-y-4"
+                >
+                    <div class="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-extrabold text-xs uppercase tracking-wider">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                        SCAN QR CODE AKTIVASI WHATSAPP
+                    </div>
+
+                    <p class="text-xs text-slate-600 dark:text-slate-300 max-w-md">
+                        Buka <strong>WhatsApp di HP Anda</strong> &gt; Menu Titik Tiga (atau Pengaturan) &gt; <strong>Perangkat Tertaut</strong> &gt; <strong>Tautkan Perangkat</strong>, lalu arahkan kamera ke QR Code di bawah:
                     </p>
+
+                    <!-- QR Code Canvas / Image -->
+                    <div class="p-4 bg-white rounded-3xl shadow-xl border-4 border-slate-900 inline-block">
+                        <img
+                            v-if="isDataUrl(waStatus?.qr)"
+                            :src="waStatus.qr!"
+                            alt="Scan QR WhatsApp Gateway"
+                            class="w-56 h-56 mx-auto object-contain"
+                        />
+                        <qrcode-vue
+                            v-else
+                            :value="waStatus.raw_qr || waStatus.qr!"
+                            :size="224"
+                            level="H"
+                            class="mx-auto"
+                        />
+                    </div>
+
+                    <!-- Polling Status Badge -->
+                    <div class="flex items-center gap-2 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                        <RefreshCw class="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                        <span>Menunggu pemindaian... Layar ini otomatis terhubung seketika setelah di-scan.</span>
+                    </div>
+
+                    <!-- Action Controls -->
+                    <div class="flex items-center gap-2 pt-1">
+                        <button
+                            @click="checkWhatsAppStatus(false)"
+                            :disabled="isCheckingWa"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold transition"
+                        >
+                            <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': isCheckingWa }" />
+                            <span>Refresh QR Manual</span>
+                        </button>
+                        <button
+                            @click="handleResetSession"
+                            :disabled="isResettingSession"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 text-rose-600 dark:text-rose-400 text-xs font-semibold transition"
+                        >
+                            <Trash2 class="w-3.5 h-3.5" />
+                            <span>Reset & Buat QR Baru</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div v-else-if="waStatus?.status === 'OFFLINE'" class="mt-3 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 text-[11px] text-rose-700 dark:text-rose-300">
