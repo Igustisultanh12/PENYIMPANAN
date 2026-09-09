@@ -31,7 +31,7 @@ import {
 import http from '../utils/http';
 import { useUiStore } from '../stores/ui';
 import type { FileItem } from '../types';
-import * as XLSX from 'xlsx';
+import * as XLSX from '../vendor/xlsx.mjs';
 
 const props = defineProps<{
     modelValue: boolean;
