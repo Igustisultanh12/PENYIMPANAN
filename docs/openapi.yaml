@@ -1,0 +1,168 @@
+openapi: 3.0.3
+info:
+  title: MyStorage REST API
+  description: Modern, self-hosted, enterprise-grade cloud storage platform API.
+  version: 1.0.0
+servers:
+  - url: /api/v1
+    description: Production API Gateway
+
+paths:
+  /auth/register:
+    post:
+      summary: Register a new account
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password, password_confirmation, terms]
+              properties:
+                name: { type: string, example: "Gusti Sultan" }
+                email: { type: string, format: email, example: "gusti@example.com" }
+                whatsapp: { type: string, example: "08123456789" }
+                password: { type: string, format: password, example: "SecurePass123!#" }
+                password_confirmation: { type: string, format: password, example: "SecurePass123!#" }
+                terms: { type: boolean, example: true }
+      responses:
+        '201':
+          description: Account created, verification email sent
+
+  /auth/login:
+    post:
+      summary: Authenticate and obtain Sanctum Bearer token
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Authenticated successfully
+
+  /files:
+    get:
+      summary: List files in drive
+      tags: [Files]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: folder_uuid
+          in: query
+          schema: { type: string }
+        - name: filter
+          in: query
+          schema: { type: string, enum: [starred, recent, trash] }
+        - name: category
+          in: query
+          schema: { type: string, enum: [image, video, audio, document, archive, other] }
+      responses:
+        '200':
+          description: Paginated file listing
+
+  /uploads/initiate:
+    post:
+      summary: Initialize resumable chunk upload session
+      tags: [Upload Engine]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, total_size, total_chunks]
+              properties:
+                filename: { type: string, example: "presentation.mp4" }
+                total_size: { type: integer, example: 52428800 }
+                chunk_size: { type: integer, default: 5242880 }
+                total_chunks: { type: integer, example: 10 }
+                folder_uuid: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Returns upload_id for chunk delivery
+
+  /uploads/{uploadId}/chunk:
+    post:
+      summary: Upload an individual binary chunk
+      tags: [Upload Engine]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [chunk_index, total_chunks, total_size, original_name, chunk]
+              properties:
+                chunk_index: { type: integer }
+                total_chunks: { type: integer }
+                total_size: { type: integer }
+                original_name: { type: string }
+                chunk: { type: string, format: binary }
+      responses:
+        '200':
+          description: Chunk received idempotently
+
+  /uploads/{uploadId}/finalize:
+    post:
+      summary: Finalize and assemble chunks into destination storage
+      tags: [Upload Engine]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Assembled file ready
+
+  /shares:
+    post:
+      summary: Create protected public or specific share link
+      tags: [Sharing]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [item_type, item_uuid]
+              properties:
+                item_type: { type: string, enum: [file, folder] }
+                item_uuid: { type: string }
+                permission: { type: string, enum: [viewer, commenter, editor], default: viewer }
+                access_type: { type: string, enum: [public_link, specific_user, specific_whatsapp] }
+                target_contact: { type: string, nullable: true }
+                password: { type: string, nullable: true }
+                allow_download: { type: boolean, default: true }
+                expires_at: { type: string, format: date-time, nullable: true }
+      responses:
+        '201':
+          description: Share link created
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Sanctum Token
