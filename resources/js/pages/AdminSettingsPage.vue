@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import QrcodeVue from 'qrcode.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useUiStore } from '@/stores/ui';
 import http from '@/utils/http';
@@ -69,9 +68,14 @@ const isConnected = computed(() => {
     return waStatus.value?.status === 'ONLINE' && waStatus.value?.connected !== false;
 });
 
-function isDataUrl(str?: string | null): boolean {
-    return !!str && str.startsWith('data:image/');
-}
+const qrImageSrc = computed(() => {
+    const qrVal = waStatus.value?.qr || waStatus.value?.raw_qr;
+    if (!qrVal) return null;
+    if (qrVal.startsWith('data:image/')) {
+        return qrVal;
+    }
+    return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=${encodeURIComponent(qrVal)}`;
+});
 
 async function loadSettings() {
     isLoading.value = true;
@@ -372,18 +376,15 @@ onUnmounted(() => {
                     <!-- QR Code Canvas / Image -->
                     <div class="p-4 bg-white rounded-3xl shadow-xl border-4 border-slate-900 inline-block">
                         <img
-                            v-if="isDataUrl(waStatus?.qr)"
-                            :src="waStatus.qr!"
+                            v-if="qrImageSrc"
+                            :src="qrImageSrc"
                             alt="Scan QR WhatsApp Gateway"
                             class="w-56 h-56 mx-auto object-contain"
                         />
-                        <qrcode-vue
-                            v-else
-                            :value="waStatus.raw_qr || waStatus.qr!"
-                            :size="224"
-                            level="H"
-                            class="mx-auto"
-                        />
+                        <div v-else class="w-56 h-56 flex flex-col items-center justify-center text-slate-400 gap-2">
+                            <RefreshCw class="w-8 h-8 animate-spin text-emerald-600" />
+                            <span class="text-xs font-semibold">Memuat QR Code...</span>
+                        </div>
                     </div>
 
                     <!-- Polling Status Badge -->
