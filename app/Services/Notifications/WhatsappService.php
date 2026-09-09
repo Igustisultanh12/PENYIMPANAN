@@ -142,11 +142,18 @@ class WhatsappService implements WhatsAppNotificationService
 
         try {
             $response = Http::timeout(5)->get("{$baseUrl}/status-wa");
+            if (!$response->successful()) {
+                $response = Http::timeout(5)->get("{$baseUrl}/status");
+            }
+
             if ($response->successful()) {
                 $data = $response->json();
+                $rawStatus = strtoupper($data['status'] ?? 'ONLINE');
+                $isOnline = $rawStatus === 'ONLINE' || ($data['connected'] ?? false) === true;
+
                 return [
-                    'status' => 'ONLINE',
-                    'connected' => $data['connected'] ?? true,
+                    'status' => $isOnline ? 'ONLINE' : ($rawStatus === 'WAITING_SCAN' ? 'WAITING_SCAN' : $rawStatus),
+                    'connected' => $isOnline,
                     'qr' => $data['qr'] ?? null,
                     'details' => $data,
                 ];

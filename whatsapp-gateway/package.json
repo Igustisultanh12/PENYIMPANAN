@@ -1,0 +1,23 @@
+{
+  "name": "whatsapp-gateway",
+  "version": "1.0.0",
+  "description": "WhatsApp Multi-Device Gateway API Service for MyStorage and Radar",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "baileys",
+    "gateway",
+    "api"
+  ],
+  "author": "MyStorage",
+  "license": "ISC",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.10",
+    "pino": "^9.6.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
