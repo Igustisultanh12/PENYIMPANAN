@@ -31,6 +31,7 @@ import {
 import http from '../utils/http';
 import { useUiStore } from '../stores/ui';
 import type { FileItem } from '../types';
+import * as XLSX from 'xlsx';
 
 const props = defineProps<{
     modelValue: boolean;
@@ -76,6 +77,9 @@ const rowCount = ref(20);
 const sheetGrid = ref<Record<string, CellData>>({});
 const selectedCell = ref('A1');
 const formulaInput = ref('');
+const availableSheets = ref<string[]>(['Sheet1']);
+const currentSheetName = ref('Sheet1');
+let currentWorkbook: XLSX.WorkBook | null = null;
 
 // 3. PPTX
 interface Slide {
@@ -127,10 +131,40 @@ async function initSession() {
         currentVersion.value = data.file.version;
         lockStatus.value = data.lock;
 
-        // Parse Draft Content
+        // Parse Draft / File Content
         const draft = data.draft;
         if (docType.value === 'spreadsheet') {
-            loadSpreadsheetDraft(draft);
+            let loadedFromBinary = false;
+            try {
+                // Selalu coba baca file fisik Excel asli dari server (menggunakan SheetJS)
+                const binaryRes = await http.get(`/files/${props.file.uuid}/preview`, {
+                    responseType: 'arraybuffer',
+                });
+                if (binaryRes.data && binaryRes.data.byteLength > 0) {
+                    const workbook = XLSX.read(new Uint8Array(binaryRes.data), {
+                        type: 'array',
+                        cellFormula: true,
+                        cellText: true,
+                    });
+
+                    if (workbook && workbook.SheetNames && workbook.SheetNames.length > 0) {
+                        currentWorkbook = workbook;
+                        availableSheets.value = workbook.SheetNames;
+                        currentSheetName.value = workbook.SheetNames[0];
+                        const ws = workbook.Sheets[currentSheetName.value];
+                        if (ws) {
+                            loadSpreadsheetFromWorksheet(ws);
+                            loadedFromBinary = true;
+                        }
+                    }
+                }
+            } catch (readErr) {
+                console.warn('Gagal membaca biner Excel asli, fallback ke draft:', readErr);
+            }
+
+            if (!loadedFromBinary) {
+                loadSpreadsheetDraft(draft);
+            }
         } else if (docType.value === 'presentation') {
             loadPresentationDraft(draft);
         } else {
@@ -147,6 +181,54 @@ async function initSession() {
     } finally {
         isLoading.value = false;
     }
+}
+
+function loadSpreadsheetFromWorksheet(ws: any) {
+    sheetGrid.value = {};
+    if (!ws || !ws['!ref']) {
+        return;
+    }
+    const range = XLSX.utils.decode_range(ws['!ref']);
+
+    // Sesuaikan rowCount jika data baris banyak
+    const totalRows = range.e.r + 1;
+    rowCount.value = Math.max(25, Math.min(totalRows + 10, 500));
+
+    // Sesuaikan columns (A, B, C, ... sampai max col)
+    const totalCols = Math.max(range.e.c + 1, 8);
+    const newCols: string[] = [];
+    for (let c = 0; c < Math.min(totalCols + 2, 26); c++) {
+        newCols.push(String.fromCharCode(65 + c));
+    }
+    columns.value = newCols;
+
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+        const rowNum = R + 1;
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+            const cell = ws[cellAddress];
+            if (cell && (cell.v !== undefined || cell.w !== undefined || cell.f !== undefined)) {
+                const displayVal = cell.w !== undefined ? String(cell.w) : String(cell.v ?? '');
+                sheetGrid.value[cellAddress] = {
+                    value: cell.f ? '=' + cell.f : displayVal,
+                    computed: displayVal,
+                };
+            }
+        }
+    }
+    evaluateAllFormulas();
+    selectCell('A1');
+}
+
+function switchSheet(sheetName: string) {
+    if (!currentWorkbook || !currentWorkbook.Sheets[sheetName]) return;
+    currentSheetName.value = sheetName;
+    loadSpreadsheetFromWorksheet(currentWorkbook.Sheets[sheetName]);
+}
+
+function downloadOriginalFile() {
+    if (!props.file) return;
+    window.open(`/api/v1/files/${props.file.uuid}/preview`, '_blank');
 }
 
 function loadDocumentDraft(draft: any) {
@@ -174,7 +256,6 @@ function loadSpreadsheetDraft(draft: any) {
             });
         });
     } else {
-        // default template data
         sheetGrid.value['A1'] = { value: props.file?.original_name || 'Tabel Data' };
         sheetGrid.value['A2'] = { value: 'Item' };
         sheetGrid.value['B2'] = { value: 'Jumlah' };
@@ -262,7 +343,40 @@ async function commitSave() {
     isSaving.value = true;
     try {
         const draftPayload = getDraftPayload();
-        const res = await http.post(`/office/commit/${sessionToken.value}`, { draft: draftPayload });
+        let binaryBase64: string | undefined = undefined;
+
+        if (docType.value === 'spreadsheet') {
+            try {
+                const wb = currentWorkbook || XLSX.utils.book_new();
+                const wsData: any[][] = [];
+                for (let r = 1; r <= rowCount.value; r++) {
+                    const rowArr: any[] = [];
+                    let hasRowData = false;
+                    for (const col of columns.value) {
+                        const val = sheetGrid.value[`${col}${r}`]?.value || '';
+                        if (val) hasRowData = true;
+                        rowArr.push(val);
+                    }
+                    if (hasRowData || r <= 15) {
+                        wsData.push(rowArr);
+                    }
+                }
+                const newWs = XLSX.utils.aoa_to_sheet(wsData);
+                const targetSheet = currentSheetName.value || 'Sheet1';
+                wb.Sheets[targetSheet] = newWs;
+                if (!wb.SheetNames.includes(targetSheet)) {
+                    wb.SheetNames.push(targetSheet);
+                }
+                binaryBase64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
+            } catch (exportErr) {
+                console.warn('Gagal export XLSX base64:', exportErr);
+            }
+        }
+
+        const res = await http.post(`/office/commit/${sessionToken.value}`, {
+            draft: draftPayload,
+            binary_base64: binaryBase64,
+        });
         const updatedFile = res.data.data;
 
         currentVersion.value = updatedFile.version;
@@ -550,6 +664,17 @@ function execDocCmd(command: string, value: string | undefined = undefined) {
                         <span class="hidden sm:inline">Slideshow</span>
                     </button>
 
+                    <!-- Open in PC / Download Button -->
+                    <button
+                        v-if="props.file"
+                        @click="downloadOriginalFile"
+                        class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-colors border border-slate-200 dark:border-slate-700"
+                        title="Unduh dan buka berkas dengan Microsoft Office di PC"
+                    >
+                        <Download class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span class="hidden sm:inline">Buka di PC</span>
+                    </button>
+
                     <!-- Save New Version to Cloud -->
                     <button
                         v-if="mode === 'edit'"
@@ -739,10 +864,29 @@ function execDocCmd(command: string, value: string | undefined = undefined) {
                         </table>
                     </div>
 
+                    <!-- Sheet Tabs Bar -->
+                    <div v-if="availableSheets.length > 1" class="flex items-center gap-1.5 px-4 py-1.5 bg-slate-100 dark:bg-slate-800/90 border-t border-slate-200 dark:border-slate-700 overflow-x-auto text-xs shrink-0">
+                        <span class="text-[10px] font-bold text-slate-400 mr-1 uppercase">Lembar Kerja:</span>
+                        <button
+                            v-for="sheet in availableSheets"
+                            :key="sheet"
+                            @click="switchSheet(sheet)"
+                            class="px-3 py-1 rounded-md text-xs font-semibold transition-all"
+                            :class="currentSheetName === sheet
+                                ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold border border-slate-200 dark:border-slate-700'
+                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 hover:bg-slate-200 dark:hover:bg-slate-700'"
+                        >
+                            {{ sheet }}
+                        </button>
+                    </div>
+
                     <!-- Grid Status Bar -->
                     <div class="px-6 py-2 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-400 flex items-center justify-between shrink-0">
-                        <span class="font-mono">Sel: {{ selectedCell }}</span>
-                        <span>MyStorage Spreadsheet Engine (OpenXML Compatible)</span>
+                        <div class="flex items-center gap-3">
+                            <span class="font-mono">Sel: {{ selectedCell }}</span>
+                            <span v-if="currentSheetName" class="font-medium text-slate-500">Lembar: {{ currentSheetName }}</span>
+                        </div>
+                        <span>MyStorage Spreadsheet Engine (SheetJS & OpenXML)</span>
                     </div>
                 </div>
 
