@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -22,6 +23,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        // Enforce relative paths for all Vite assets to prevent port/origin mismatch and CORS issues
+        Vite::createAssetPathsUsing(fn ($path) => '/' . ltrim($path, '/'));
     }
 }
