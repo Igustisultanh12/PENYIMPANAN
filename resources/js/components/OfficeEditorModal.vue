@@ -118,7 +118,7 @@ async function initSession() {
     saveStatus.value = 'saved';
 
     try {
-        const res = await http.get(`/api/v1/office/session/${props.file.uuid}?mode=edit`);
+        const res = await http.get(`/office/session/${props.file.uuid}?mode=edit`);
         const data = res.data.data;
 
         sessionToken.value = data.session_token;
@@ -140,7 +140,9 @@ async function initSession() {
         // Start 45s heartbeat to keep document lock alive
         startHeartbeat();
     } catch (err: any) {
-        ui.addToast('Gagal memuat sesi dokumen.', 'error');
+        const message = err.response?.data?.message || 'Gagal memuat sesi dokumen (' + (err.response?.status || 'Error') + ')';
+        console.error('Office Session Load Error:', err);
+        ui.addToast(message, 'error');
         emit('update:modelValue', false);
     } finally {
         isLoading.value = false;
@@ -214,7 +216,7 @@ function triggerAutosave() {
         saveStatus.value = 'saving';
         try {
             const draftPayload = getDraftPayload();
-            await http.post(`/api/v1/office/draft/${sessionToken.value}`, { draft: draftPayload });
+            await http.post(`/office/draft/${sessionToken.value}`, { draft: draftPayload });
             saveStatus.value = 'saved';
         } catch {
             saveStatus.value = 'unsaved';
@@ -247,7 +249,7 @@ function startHeartbeat() {
     heartbeatTimer = setInterval(async () => {
         if (!props.file || !sessionToken.value || mode.value !== 'edit') return;
         try {
-            await http.post(`/api/v1/office/lock/${props.file.uuid}`);
+            await http.post(`/office/lock/${props.file.uuid}`);
         } catch {
             // Lock lost or network error
         }
@@ -260,7 +262,7 @@ async function commitSave() {
     isSaving.value = true;
     try {
         const draftPayload = getDraftPayload();
-        const res = await http.post(`/api/v1/office/commit/${sessionToken.value}`, { draft: draftPayload });
+        const res = await http.post(`/office/commit/${sessionToken.value}`, { draft: draftPayload });
         const updatedFile = res.data.data;
 
         currentVersion.value = updatedFile.version;
@@ -268,7 +270,7 @@ async function commitSave() {
         ui.addToast(`Dokumen tersimpan ke cloud (Versi ${updatedFile.version})`, 'success');
         emit('saved', updatedFile);
     } catch (err: any) {
-        ui.addToast('Gagal menyimpan dokumen ke cloud.', 'error');
+        ui.addToast(err.response?.data?.message || 'Gagal menyimpan dokumen ke cloud.', 'error');
     } finally {
         isSaving.value = false;
     }
@@ -280,7 +282,7 @@ async function cleanupSession() {
     clearInterval(heartbeatTimer);
     if (props.file && sessionToken.value && mode.value === 'edit') {
         try {
-            await http.delete(`/api/v1/office/lock/${props.file.uuid}`);
+            await http.delete(`/office/lock/${props.file.uuid}`);
         } catch {
             // Ignore
         }

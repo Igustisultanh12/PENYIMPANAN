@@ -138,6 +138,17 @@ Route::prefix('v1')->group(function () {
                 Route::post('lock/{fileUuid}', [OfficeController::class, 'lock']);
                 Route::delete('lock/{fileUuid}', [OfficeController::class, 'unlock']);
             });
+
+            // Backward compatibility alias for double-prefixed client requests (/api/v1/api/v1/office/...)
+            Route::prefix('api/v1/office')->group(function () {
+                Route::get('templates', [OfficeController::class, 'templates']);
+                Route::post('create', [OfficeController::class, 'create']);
+                Route::get('session/{fileUuid}', [OfficeController::class, 'session']);
+                Route::post('draft/{sessionToken}', [OfficeController::class, 'saveDraft']);
+                Route::post('commit/{sessionToken}', [OfficeController::class, 'commit']);
+                Route::post('lock/{fileUuid}', [OfficeController::class, 'lock']);
+                Route::delete('lock/{fileUuid}', [OfficeController::class, 'unlock']);
+            });
         });
     });
 });

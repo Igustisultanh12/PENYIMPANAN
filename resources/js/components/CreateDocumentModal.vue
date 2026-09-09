@@ -72,7 +72,7 @@ watch(selectedType, () => {
 async function fetchTemplates() {
     isLoadingTemplates.value = true;
     try {
-        const res = await http.get(`/api/v1/office/templates?type=${selectedType.value}`);
+        const res = await http.get(`/office/templates?type=${selectedType.value}`);
         templates.value = res.data.data;
         selectedTemplate.value = templates.value[0]?.name || null;
     } catch {
@@ -91,7 +91,7 @@ async function handleCreate() {
 
     isSubmitting.value = true;
     try {
-        const res = await http.post('/api/v1/office/create', {
+        const res = await http.post('/office/create', {
             name: docName.value.trim(),
             type: selectedType.value,
             folder_uuid: props.folderUuid || null,

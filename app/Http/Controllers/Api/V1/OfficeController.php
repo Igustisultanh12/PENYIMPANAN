@@ -11,6 +11,7 @@ use App\Services\DocumentTemplateService;
 use App\Services\OfficeEditorService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class OfficeController extends Controller
 {
@@ -73,19 +74,51 @@ class OfficeController extends Controller
     public function session(Request $request, string $fileUuid): JsonResponse
     {
         $user = $request->user();
-        $file = FileItem::where('uuid', $fileUuid)
-            ->where('owner_id', $user->id)
-            ->firstOrFail();
+        Log::info("OfficeController@session: Membuka sesi dokumen UUID={$fileUuid} oleh User ID={$user->id} ({$user->email})");
 
-        $mode = $request->query('mode', 'edit');
-        $deviceId = $request->header('X-Device-ID');
+        try {
+            $file = FileItem::where('uuid', $fileUuid)
+                ->where('owner_id', $user->id)
+                ->first();
 
-        $sessionData = $this->officeService->createSession($file, $user, $mode, $deviceId);
+            if (!$file) {
+                // Fallback: periksa apakah file ada di sistem
+                $file = FileItem::where('uuid', $fileUuid)->first();
+                if (!$file) {
+                    Log::error("OfficeController@session: File dokumen UUID={$fileUuid} TIDAK DITEMUKAN di database untuk user_id={$user->id}");
+                    return response()->json([
+                        'success' => false,
+                        'message' => "File dokumen dengan UUID '{$fileUuid}' tidak ditemukan.",
+                    ], 404);
+                }
+            }
 
-        return response()->json([
-            'success' => true,
-            'data' => $sessionData,
-        ]);
+            $mode = $request->query('mode', 'edit');
+            $deviceId = $request->header('X-Device-ID');
+
+            $sessionData = $this->officeService->createSession($file, $user, $mode, $deviceId);
+
+            Log::info("OfficeController@session: Berhasil memuat sesi dokumen '{$file->original_name}' (Type: {$sessionData['document_type']}, Mode: {$sessionData['mode']})");
+
+            return response()->json([
+                'success' => true,
+                'data' => $sessionData,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error("OfficeController@session GAGAL untuk file UUID={$fileUuid}: " . $e->getMessage(), [
+                'user_id' => $user->id,
+                'file_uuid' => $fileUuid,
+                'exception' => get_class($e),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal memuat sesi dokumen: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
@@ -93,21 +126,29 @@ class OfficeController extends Controller
      */
     public function saveDraft(Request $request, string $sessionToken): JsonResponse
     {
-        $session = OfficeSession::where('session_token', $sessionToken)
-            ->where('user_id', $request->user()->id)
-            ->firstOrFail();
+        try {
+            $session = OfficeSession::where('session_token', $sessionToken)
+                ->where('user_id', $request->user()->id)
+                ->firstOrFail();
 
-        $validated = $request->validate([
-            'draft' => ['required'],
-        ]);
+            $validated = $request->validate([
+                'draft' => ['required'],
+            ]);
 
-        $this->officeService->saveDraft($session, $validated['draft']);
+            $this->officeService->saveDraft($session, $validated['draft']);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Draft tersimpan otomatis.',
-            'last_autosave_at' => now()->toIso8601String(),
-        ]);
+            return response()->json([
+                'success' => true,
+                'message' => 'Draft tersimpan otomatis.',
+                'last_autosave_at' => now()->toIso8601String(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error("OfficeController@saveDraft GAGAL: " . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal menyimpan draft: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
@@ -115,33 +156,45 @@ class OfficeController extends Controller
      */
     public function commit(Request $request, string $sessionToken): JsonResponse
     {
-        $session = OfficeSession::where('session_token', $sessionToken)
-            ->where('user_id', $request->user()->id)
-            ->firstOrFail();
+        try {
+            $session = OfficeSession::where('session_token', $sessionToken)
+                ->where('user_id', $request->user()->id)
+                ->firstOrFail();
 
-        $validated = $request->validate([
-            'draft' => ['nullable'],
-            'binary_base64' => ['nullable', 'string'],
-        ]);
+            $validated = $request->validate([
+                'draft' => ['nullable'],
+                'binary_base64' => ['nullable', 'string'],
+            ]);
 
-        $binaryBytes = !empty($validated['binary_base64'])
-            ? base64_decode($validated['binary_base64'])
-            : null;
+            $binaryBytes = !empty($validated['binary_base64'])
+                ? base64_decode($validated['binary_base64'])
+                : null;
 
-        $deviceId = $request->header('X-Device-ID');
+            $deviceId = $request->header('X-Device-ID');
 
-        $updatedFile = $this->officeService->commitSession(
-            $session,
-            $binaryBytes,
-            $validated['draft'] ?? null,
-            $deviceId
-        );
+            $updatedFile = $this->officeService->commitSession(
+                $session,
+                $binaryBytes,
+                $validated['draft'] ?? null,
+                $deviceId
+            );
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Dokumen berhasil disimpan ke cloud sebagai versi ' . $updatedFile->version . '.',
-            'data' => $updatedFile,
-        ]);
+            Log::info("OfficeController@commit: Berhasil menyimpan versi baru v{$updatedFile->version} untuk file '{$updatedFile->original_name}'");
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Dokumen berhasil disimpan ke cloud sebagai versi ' . $updatedFile->version . '.',
+                'data' => $updatedFile,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error("OfficeController@commit GAGAL: " . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal menyimpan dokumen: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
