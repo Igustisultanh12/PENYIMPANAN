@@ -15,6 +15,8 @@ import {
     Plus,
     Trash2,
     Copy,
+    X,
+    Download,
 } from 'lucide-vue-next';
 
 const auth = useAuthStore();
@@ -22,9 +24,25 @@ const ui = useUiStore();
 
 const activeTab = ref<'general' | 'sessions' | 'devices' | 'logs' | 'api'>('general');
 
-// Desktop Client Devices
+// Desktop Client Devices & Modal
 const desktopDevices = ref<any[]>([]);
 const isLoadingDevices = ref(false);
+const isDesktopModalOpen = ref(false);
+const desktopConnectTab = ref<'app' | 'pwa' | 'network'>('app');
+
+function downloadDesktopShortcut() {
+    const content = `[InternetShortcut]\r\nURL=${window.location.origin}/drive\r\nIconIndex=0\r\n`;
+    const blob = new Blob([content], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'MyStorage-Cloud.url';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    ui.notify('Shortcut desktop MyStorage berhasil diunduh.', 'success');
+}
 
 // Password state
 const currentPassword = ref('');
@@ -398,13 +416,13 @@ onMounted(() => {
                         Sinkronisasi otomatis folder PC Anda secara langsung dengan cloud MyStorage. Mendukung background sync, deteksi konflik offline, dan selective folder sync.
                     </p>
                 </div>
-                <a
-                    href="#download-desktop"
-                    class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-white text-blue-700 hover:bg-blue-50 text-xs font-bold shadow-lg transition-all shrink-0"
+                <button
+                    @click="isDesktopModalOpen = true"
+                    class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-white text-blue-700 hover:bg-blue-50 text-xs font-bold shadow-lg transition-all shrink-0 cursor-pointer"
                 >
                     <Laptop class="w-4 h-4" />
-                    <span>Unduh Klien PC</span>
-                </a>
+                    <span>Unduh & Hubungkan PC</span>
+                </button>
             </div>
 
             <!-- Connected Devices List -->
@@ -556,4 +574,165 @@ onMounted(() => {
             </div>
         </div>
     </div>
+
+    <!-- Desktop Connection Guide Modal -->
+    <Teleport to="body">
+        <div
+            v-if="isDesktopModalOpen"
+            class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+            @click.self="isDesktopModalOpen = false"
+        >
+            <div class="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                <!-- Modal Header -->
+                <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-9 h-9 rounded-xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                            <Laptop class="w-5 h-5" />
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">Koneksikan MyStorage ke PC</h3>
+                            <p class="text-xs text-slate-400">Pilih opsi integrasi komputer yang sesuai dengan kebutuhan Anda</p>
+                        </div>
+                    </div>
+                    <button
+                        @click="isDesktopModalOpen = false"
+                        class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                    >
+                        <X class="w-4 h-4" />
+                    </button>
+                </div>
+
+                <!-- Method Tabs -->
+                <div class="flex border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-1.5 gap-1 text-xs font-semibold shrink-0">
+                    <button
+                        @click="desktopConnectTab = 'app'"
+                        class="flex-1 py-2 px-3 rounded-xl transition-all"
+                        :class="desktopConnectTab === 'app' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'"
+                    >
+                        1. Klien Desktop Sync
+                    </button>
+                    <button
+                        @click="desktopConnectTab = 'pwa'"
+                        class="flex-1 py-2 px-3 rounded-xl transition-all"
+                        :class="desktopConnectTab === 'pwa' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'"
+                    >
+                        2. Pasang App PC (PWA)
+                    </button>
+                    <button
+                        @click="desktopConnectTab = 'network'"
+                        class="flex-1 py-2 px-3 rounded-xl transition-all"
+                        :class="desktopConnectTab === 'network' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'"
+                    >
+                        3. Network Drive (Explorer)
+                    </button>
+                </div>
+
+                <!-- Modal Body -->
+                <div class="p-6 overflow-y-auto space-y-4 text-xs">
+                    <!-- Option 1: Desktop Sync Client -->
+                    <div v-if="desktopConnectTab === 'app'" class="space-y-4">
+                        <div class="p-4 rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/50">
+                            <h4 class="font-bold text-slate-800 dark:text-slate-200 text-sm mb-1">MyStorage Desktop Sync (Rust + Tauri)</h4>
+                            <p class="text-slate-600 dark:text-slate-400 leading-relaxed">
+                                Aplikasi desktop ini berjalan di latar belakang Windows (*background tray icon*) untuk sinkronisasi otomatis dua arah antara folder komputer Anda dan cloud server.
+                            </p>
+                        </div>
+
+                        <div class="space-y-2">
+                            <p class="font-semibold text-slate-700 dark:text-slate-300">Cara menjalankan / build di komputer PC Anda:</p>
+                            <ol class="list-decimal list-inside space-y-1.5 text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 font-mono text-[11px]">
+                                <li>Buka terminal / PowerShell di folder proyek pada PC Anda</li>
+                                <li class="font-bold text-blue-600 dark:text-blue-400">cd desktop</li>
+                                <li class="font-bold text-blue-600 dark:text-blue-400">npm install</li>
+                                <li class="font-bold text-blue-600 dark:text-blue-400">npm run dev (atau: npm run tauri build)</li>
+                            </ol>
+                        </div>
+
+                        <div class="pt-2 flex flex-wrap items-center gap-3">
+                            <button
+                                @click="downloadDesktopShortcut"
+                                class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors shadow-xs"
+                            >
+                                <Download class="w-4 h-4" />
+                                <span>Unduh Shortcut Desktop (.url)</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Option 2: PWA / Web App -->
+                    <div v-else-if="desktopConnectTab === 'pwa'" class="space-y-4">
+                        <div class="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/50">
+                            <h4 class="font-bold text-emerald-900 dark:text-emerald-200 text-sm mb-1">Pasang Aplikasi Instan (Tanpa Install Berat)</h4>
+                            <p class="text-emerald-700 dark:text-emerald-400 leading-relaxed">
+                                Anda dapat memasang MyStorage langsung menjadi aplikasi PC Windows dengan ikon di Desktop, Start Menu, dan Taskbar melalui browser Google Chrome atau Microsoft Edge.
+                            </p>
+                        </div>
+
+                        <div class="space-y-2.5">
+                            <div class="flex items-start gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800">
+                                <span class="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px] shrink-0 mt-0.5">1</span>
+                                <div>
+                                    <p class="font-semibold text-slate-800 dark:text-slate-200">Buka di Browser Komputer</p>
+                                    <p class="text-slate-500 text-[11px]">Buka tautan cloud ini di Google Chrome atau Microsoft Edge PC Anda.</p>
+                                </div>
+                            </div>
+                            <div class="flex items-start gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800">
+                                <span class="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px] shrink-0 mt-0.5">2</span>
+                                <div>
+                                    <p class="font-semibold text-slate-800 dark:text-slate-200">Pasang sebagai Aplikasi</p>
+                                    <p class="text-slate-500 text-[11px]">Klik menu titik tiga <b>(⋮)</b> di kanan atas browser ➔ <b>Save and share (Simpan & bagikan)</b> ➔ <b>Install page as app (Pasang halaman ini sebagai aplikasi)</b>.</p>
+                                </div>
+                            </div>
+                            <div class="flex items-start gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800">
+                                <span class="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px] shrink-0 mt-0.5">3</span>
+                                <div>
+                                    <p class="font-semibold text-slate-800 dark:text-slate-200">Akses Mandiri</p>
+                                    <p class="text-slate-500 text-[11px]">Aplikasi akan muncul di Desktop dan Taskbar Windows seperti software native.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button
+                            @click="downloadDesktopShortcut"
+                            class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors shadow-xs"
+                        >
+                            <Download class="w-4 h-4" />
+                            <span>Unduh Shortcut Desktop (.url)</span>
+                        </button>
+                    </div>
+
+                    <!-- Option 3: Network Drive -->
+                    <div v-else class="space-y-4">
+                        <div class="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-100 dark:border-amber-900/50">
+                            <h4 class="font-bold text-amber-900 dark:text-amber-200 text-sm mb-1">Hubungkan sebagai Partisi Drive di Windows Explorer</h4>
+                            <p class="text-amber-800 dark:text-amber-400 leading-relaxed">
+                                Muncul langsung sebagai partisi drive (seperti Drive <b>Z:</b>) di File Explorer komputer Anda. File Excel/Word bisa langsung diedit dengan Microsoft Office asli.
+                            </p>
+                        </div>
+
+                        <div class="space-y-2 text-slate-600 dark:text-slate-400 text-xs">
+                            <p class="font-semibold text-slate-800 dark:text-slate-200">Langkah Sambung di Windows Explorer:</p>
+                            <ol class="list-decimal list-inside space-y-2 bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800">
+                                <li>Tekan <kbd class="px-1.5 py-0.5 rounded-md bg-slate-200 dark:bg-slate-700 font-mono text-[10px]">Win + E</kbd> untuk membuka File Explorer di PC Anda.</li>
+                                <li>Klik kanan pada <b>This PC</b> ➔ pilih <b>Map network drive...</b></li>
+                                <li>Pilih huruf drive (misal <b>Z:</b>).</li>
+                                <li>Masukkan alamat folder SMB server: <code class="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-mono text-[11px]">\\192.168.1.29\storage</code></li>
+                                <li>Centang <i>Reconnect at sign-in</i> lalu klik <b>Finish</b>.</li>
+                            </ol>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="px-6 py-3.5 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                    <button
+                        @click="isDesktopModalOpen = false"
+                        class="px-4 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold transition-colors text-xs"
+                    >
+                        Tutup
+                    </button>
+                </div>
+            </div>
+        </div>
+    </Teleport>
 </template>
