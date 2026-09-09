@@ -152,10 +152,9 @@ class WhatsappService implements WhatsAppNotificationService
                 $isOnline = $rawStatus === 'ONLINE' || ($data['connected'] ?? false) === true;
 
                 return [
-                    'status' => $isOnline ? 'ONLINE' : ($rawStatus === 'WAITING_SCAN' ? 'WAITING_SCAN' : $rawStatus),
+                    'status' => $isOnline ? 'ONLINE' : ($rawStatus === 'WAITING_PAIR' ? 'WAITING_PAIR' : $rawStatus),
                     'connected' => $isOnline,
-                    'qr' => $data['qr'] ?? null,
-                    'raw_qr' => $data['raw_qr'] ?? null,
+                    'pairing_code' => $data['pairing_code'] ?? null,
                     'details' => $data,
                 ];
             }
@@ -163,8 +162,7 @@ class WhatsappService implements WhatsAppNotificationService
             return [
                 'status' => 'ERROR',
                 'connected' => false,
-                'qr' => null,
-                'raw_qr' => null,
+                'pairing_code' => null,
                 'message' => 'Gateway merespon HTTP ' . $response->status(),
             ];
         } catch (\Throwable $e) {
@@ -203,6 +201,39 @@ class WhatsappService implements WhatsAppNotificationService
             return [
                 'status' => $response->successful(),
                 'message' => $response->json('message') ?? 'Sesi WhatsApp berhasil di-reset.',
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'status' => false,
+                'message' => 'Gagal menghubungi gateway: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Request WhatsApp Pairing Code for the provided phone number.
+     */
+    public function requestPairingCode(string $phoneNumber): array
+    {
+        $baseUrl = $this->getGatewayUrl();
+        $cleanPhone = $this->normalizePhoneNumber($phoneNumber);
+
+        try {
+            $response = Http::timeout(15)->post("{$baseUrl}/pairing-code", [
+                'number' => $cleanPhone,
+            ]);
+
+            if ($response->successful()) {
+                return [
+                    'status' => true,
+                    'pairing_code' => $response->json('pairing_code'),
+                    'message' => $response->json('message') ?? 'Kode pairing berhasil dibuat.',
+                ];
+            }
+
+            return [
+                'status' => false,
+                'message' => $response->json('message') ?? 'Gagal membuat kode pairing dari gateway.',
             ];
         } catch (\Throwable $e) {
             return [

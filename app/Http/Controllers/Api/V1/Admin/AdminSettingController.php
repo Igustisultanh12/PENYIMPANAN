@@ -186,4 +186,26 @@ class AdminSettingController extends Controller
             'message' => $res['message'] ?? 'Permintaan reset sesi WhatsApp berhasil dikirim.',
         ]);
     }
+
+    /**
+     * Request WhatsApp Pairing Code for an admin phone number.
+     */
+    public function requestPairingCode(Request $request): JsonResponse
+    {
+        if ($deny = $this->authorizeAdmin($request)) {
+            return $deny;
+        }
+
+        $request->validate([
+            'phone' => ['required', 'string', 'min:8', 'max:25'],
+        ]);
+
+        $res = app(WhatsappService::class)->requestPairingCode($request->input('phone'));
+
+        return response()->json([
+            'success' => $res['status'] ?? false,
+            'pairing_code' => $res['pairing_code'] ?? null,
+            'message' => $res['message'] ?? 'Kode pairing diproses.',
+        ], ($res['status'] ?? false) ? 200 : 422);
+    }
 }

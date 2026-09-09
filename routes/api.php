@@ -50,6 +50,7 @@ Route::prefix('v1')->group(function () {
             Route::get('settings', [AdminSettingController::class, 'getSettings']);
             Route::post('settings', [AdminSettingController::class, 'updateSettings']);
             Route::get('whatsapp/status', [AdminSettingController::class, 'getWhatsAppStatus']);
+            Route::post('whatsapp/pairing-code', [AdminSettingController::class, 'requestPairingCode']);
             Route::post('whatsapp/test', [AdminSettingController::class, 'testWhatsApp']);
             Route::post('whatsapp/reset', [AdminSettingController::class, 'resetWhatsAppSession']);
             Route::post('mail/test', [AdminSettingController::class, 'testMail']);

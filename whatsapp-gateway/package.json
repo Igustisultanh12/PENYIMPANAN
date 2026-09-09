@@ -1,7 +1,7 @@
 {
   "name": "whatsapp-gateway",
   "version": "1.0.0",
-  "description": "WhatsApp Multi-Device Gateway API Service for MyStorage and Radar",
+  "description": "WhatsApp Multi-Device Gateway API Service (Pairing Code Mode)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -10,14 +10,12 @@
     "whatsapp",
     "baileys",
     "gateway",
-    "api"
+    "pairing-code"
   ],
   "author": "MyStorage",
   "license": "ISC",
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.10",
-    "pino": "^9.6.0",
-    "qrcode": "^1.5.4",
-    "qrcode-terminal": "^0.12.0"
+    "pino": "^9.6.0"
   }
 }
