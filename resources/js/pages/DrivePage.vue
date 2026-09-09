@@ -297,6 +297,7 @@ function handleOfficeSaved(file: FileItem) {
                     @share="f => openShare(f, 'file')"
                     @star="f => drive.toggleStarFile(f)"
                     @rename="openRename"
+                    @move="f => openMove(f, 'file')"
                     @delete="f => drive.trashFile(f.uuid)"
                 />
 

@@ -1,5 +1,5 @@
-<script setup lang="ts">
-import { computed, ref } from 'vue';
+﻿<script setup lang="ts">
+import { computed } from 'vue';
 import type { FileItem } from '@/types';
 import {
     FileText,
@@ -17,6 +17,7 @@ import {
     CornerUpRight,
     Trash2,
 } from 'lucide-vue-next';
+import { useContextMenu } from '@/composables/useContextMenu';
 
 const props = defineProps<{
     file: FileItem;
@@ -32,7 +33,23 @@ const emit = defineEmits<{
     (e: 'delete', file: FileItem): void;
 }>();
 
-const showMenu = ref(false);
+const { openMenu, closeMenu, isOpen, menuPosition } = useContextMenu();
+
+const isMenuOpen = computed(() => isOpen('file-' + props.file.uuid));
+
+function handleContextMenu(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    openMenu('file-' + props.file.uuid, e.clientX, e.clientY, 210, 310);
+}
+
+function handleMoreClick(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const btn = e.currentTarget as HTMLElement;
+    const rect = btn.getBoundingClientRect();
+    openMenu('file-' + props.file.uuid, rect.right - 210, rect.bottom + 6, 210, 310);
+}
 
 const categoryIcon = computed(() => {
     switch (props.file.category) {
@@ -64,6 +81,7 @@ const previewUrl = computed(() => {
 <template>
     <div
         @dblclick="emit('preview', file)"
+        @contextmenu="handleContextMenu"
         class="group relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-hidden card-hover-lift hover:border-blue-500/60 dark:hover:border-blue-500/60 transition-all duration-300 flex flex-col select-none cursor-pointer"
     >
         <!-- Preview Area -->
@@ -90,14 +108,16 @@ const previewUrl = computed(() => {
                 @click.stop="emit('star', file)"
                 class="absolute top-2.5 left-2.5 p-1.5 rounded-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-xs text-slate-400 hover:text-amber-400 transition-colors shadow-xs"
                 :class="{ 'opacity-100 !text-amber-400': file.is_starred, 'opacity-0 group-hover:opacity-100': !file.is_starred }"
+                title="Bintangi"
             >
                 <Star class="w-3.5 h-3.5" :class="{ 'fill-current': file.is_starred }" />
             </button>
 
             <!-- More Menu Button -->
             <button
-                @click.stop="showMenu = !showMenu"
-                class="absolute top-2.5 right-2.5 p-1.5 rounded-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 opacity-0 group-hover:opacity-100 transition-opacity shadow-xs"
+                @click="handleMoreClick"
+                class="absolute top-2.5 right-2.5 p-1.5 rounded-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 opacity-0 group-hover:opacity-100 transition-opacity shadow-xs z-10"
+                title="Menu Pilihan"
             >
                 <MoreVertical class="w-3.5 h-3.5" />
             </button>
@@ -116,62 +136,89 @@ const previewUrl = computed(() => {
                 </div>
             </div>
         </div>
-
-        <!-- Context Dropdown -->
-        <div
-            v-if="showMenu"
-            @click.stop="showMenu = false"
-            class="fixed inset-0 z-30"
-        ></div>
-
-        <div
-            v-if="showMenu"
-            @click.stop="showMenu = false"
-            class="absolute right-3 top-10 w-44 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1.5 z-40 text-xs"
-        >
-            <button
-                @click="emit('preview', file)"
-                class="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-left"
-            >
-                <Eye class="w-3.5 h-3.5 text-slate-400" />
-                Pratinjau
-            </button>
-            <button
-                @click="emit('download', file)"
-                class="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-left"
-            >
-                <Download class="w-3.5 h-3.5 text-slate-400" />
-                Unduh
-            </button>
-            <button
-                @click="emit('share', file)"
-                class="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-left"
-            >
-                <Share2 class="w-3.5 h-3.5 text-blue-500" />
-                Bagikan
-            </button>
-            <button
-                @click="emit('rename', file)"
-                class="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-left"
-            >
-                <Edit3 class="w-3.5 h-3.5 text-slate-400" />
-                Ganti Nama
-            </button>
-            <button
-                @click="emit('move', file)"
-                class="w-full flex items-center gap-2.5 px-3.5 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-left"
-            >
-                <CornerUpRight class="w-3.5 h-3.5 text-slate-400" />
-                Pindahkan
-            </button>
-            <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
-            <button
-                @click="emit('delete', file)"
-                class="w-full flex items-center gap-2.5 px-3.5 py-2 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-left font-medium"
-            >
-                <Trash2 class="w-3.5 h-3.5" />
-                Hapus
-            </button>
-        </div>
     </div>
+
+    <!-- Floating Portal Context Menu -->
+    <Teleport to="body">
+        <div
+            v-if="isMenuOpen"
+            class="fixed inset-0 z-[99998] pointer-events-auto"
+            @click="closeMenu"
+            @contextmenu.prevent="closeMenu"
+        >
+            <div
+                :style="{ left: `${menuPosition.x}px`, top: `${menuPosition.y}px` }"
+                @click.stop
+                class="fixed w-52 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-2xl py-1.5 z-[99999] text-xs font-medium text-slate-700 dark:text-slate-200 select-none transition-all duration-100 animate-in fade-in zoom-in-95"
+            >
+                <!-- Menu Header: File Name & Size -->
+                <div class="px-3.5 py-1.5 border-b border-slate-100 dark:border-slate-800/80 mb-1">
+                    <p class="text-[11px] font-bold text-slate-800 dark:text-slate-200 truncate" :title="file.original_name">
+                        {{ file.original_name }}
+                    </p>
+                    <p class="text-[10px] text-slate-400 font-mono mt-0.5">
+                        {{ file.human_size }} • {{ (file.extension || '').toUpperCase() }}
+                    </p>
+                </div>
+
+                <!-- Action Items -->
+                <div class="px-1 space-y-0.5">
+                    <button
+                        @click="emit('preview', file); closeMenu()"
+                        class="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-left"
+                    >
+                        <Eye class="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>Pratinjau / Buka</span>
+                    </button>
+                    <button
+                        @click="emit('download', file); closeMenu()"
+                        class="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-left"
+                    >
+                        <Download class="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>Unduh Berkas</span>
+                    </button>
+                    <button
+                        @click="emit('share', file); closeMenu()"
+                        class="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-left"
+                    >
+                        <Share2 class="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                        <span>Bagikan Tautan</span>
+                    </button>
+                    <button
+                        @click="emit('star', file); closeMenu()"
+                        class="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-left"
+                    >
+                        <Star class="w-3.5 h-3.5 text-amber-500 shrink-0" :class="{ 'fill-amber-500': file.is_starred }" />
+                        <span>{{ file.is_starred ? 'Hapus Bintang' : 'Bintangi Berkas' }}</span>
+                    </button>
+                    <button
+                        @click="emit('rename', file); closeMenu()"
+                        class="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-left"
+                    >
+                        <Edit3 class="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>Ganti Nama</span>
+                    </button>
+                    <button
+                        @click="emit('move', file); closeMenu()"
+                        class="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-left"
+                    >
+                        <CornerUpRight class="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>Pindahkan ke Folder</span>
+                    </button>
+                </div>
+
+                <div class="border-t border-slate-100 dark:border-slate-800/80 my-1"></div>
+
+                <div class="px-1">
+                    <button
+                        @click="emit('delete', file); closeMenu()"
+                        class="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors text-left font-medium"
+                    >
+                        <Trash2 class="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                        <span>Pindahkan ke Sampah</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </Teleport>
 </template>
