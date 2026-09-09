@@ -488,37 +488,57 @@ onUnmounted(() => {
                             KODE PAIRING WHATSAPP ANDA
                         </p>
 
-                        <!-- Karakter Kode Pairing dalam Kotak -->
-                        <div class="flex flex-wrap items-center justify-center gap-2 sm:gap-2.5 my-2">
-                            <span
-                                v-for="(char, index) in pairingCodeChars"
-                                :key="index"
-                                class="bg-white text-slate-900 w-11 h-12 sm:w-12 sm:h-14 rounded-xl font-black text-2xl sm:text-3xl font-mono shadow-inner border-b-4 border-slate-300 flex items-center justify-center select-all"
-                            >
-                                {{ char }}
-                            </span>
+                        <!-- Karakter Kode Pairing dalam 2 Blok (4 digit - 4 digit persis seperti tampilan WhatsApp HP) -->
+                        <div class="flex items-center justify-center gap-2 sm:gap-3 my-2">
+                            <div class="flex items-center gap-1.5 sm:gap-2">
+                                <span
+                                    v-for="(char, index) in pairingCodeChars.slice(0, 4)"
+                                    :key="'c1-' + index"
+                                    class="bg-white text-slate-900 w-10 h-12 sm:w-12 sm:h-14 rounded-xl font-black text-2xl sm:text-3xl font-mono shadow-inner border-b-4 border-slate-300 flex items-center justify-center select-all"
+                                >
+                                    {{ char }}
+                                </span>
+                            </div>
+                            <span class="text-slate-400 font-black text-2xl sm:text-3xl mx-0.5">-</span>
+                            <div class="flex items-center gap-1.5 sm:gap-2">
+                                <span
+                                    v-for="(char, index) in pairingCodeChars.slice(4, 8)"
+                                    :key="'c2-' + index"
+                                    class="bg-white text-slate-900 w-10 h-12 sm:w-12 sm:h-14 rounded-xl font-black text-2xl sm:text-3xl font-mono shadow-inner border-b-4 border-slate-300 flex items-center justify-center select-all"
+                                >
+                                    {{ char }}
+                                </span>
+                            </div>
                         </div>
 
-                        <!-- Tombol Copy & Indikator Tunggu -->
-                        <div class="flex flex-wrap items-center justify-center gap-3 pt-1">
+                        <!-- Tombol Copy, Minta Kode Baru, & Indikator Tunggu -->
+                        <div class="flex flex-wrap items-center justify-center gap-2.5 pt-1">
                             <button
                                 @click="copyPairingCode"
-                                class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition border border-slate-700"
+                                class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition border border-slate-700"
                             >
                                 <Check v-if="isCopied" class="w-4 h-4 text-emerald-400" />
                                 <Copy v-else class="w-4 h-4 text-slate-400" />
                                 <span>{{ isCopied ? 'Tersalin!' : 'Salin Kode' }}</span>
                             </button>
+                            <button
+                                @click="handleRequestPairing"
+                                :disabled="isRequestingPairing"
+                                class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition border border-slate-700"
+                            >
+                                <RefreshCw class="w-4 h-4 text-blue-400" :class="{ 'animate-spin': isRequestingPairing }" />
+                                <span>Minta Kode Baru</span>
+                            </button>
                             <div class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-950/60 text-emerald-300 text-xs font-medium border border-emerald-800/40">
                                 <RefreshCw class="w-3.5 h-3.5 animate-spin text-emerald-400" />
-                                <span>Menunggu Anda memasukkan kode di HP...</span>
+                                <span>Menunggu Anda mengetik di HP...</span>
                             </div>
                         </div>
 
                         <!-- Petunjuk Langkah Demi Langkah -->
                         <div class="w-full max-w-lg text-left bg-slate-950/70 p-4 rounded-2xl border border-slate-800 text-xs space-y-2 mt-4 text-slate-300">
                             <p class="font-bold text-slate-200">Cara Tautkan di WhatsApp HP:</p>
-                            <ol class="list-decimal list-inside space-y-1 text-[11px] text-slate-400">
+                            <ol class="list-decimal list-inside space-y-1.5 text-[11px] text-slate-400">
                                 <li>Buka aplikasi <strong>WhatsApp</strong> di HP Anda.</li>
                                 <li>Ketuk menu <strong>Titik Tiga</strong> (Android) atau <strong>Pengaturan</strong> (iPhone) &gt; <strong>Perangkat Tertaut</strong>.</li>
                                 <li>Ketuk tombol <strong>Tautkan Perangkat</strong>.</li>
@@ -526,6 +546,9 @@ onUnmounted(() => {
                                 <li>Masukkan <strong>8 karakter Kode Pairing</strong> di atas.</li>
                                 <li>Setelah selesai, status di sini otomatis berubah menjadi <strong>Terhubung</strong>.</li>
                             </ol>
+                            <div class="mt-2.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-300 font-medium">
+                                💡 <strong>Tips:</strong> Kode pairing hanya aktif sekitar 60 detik. Pastikan nomor HP yang dimasukkan adalah nomor WhatsApp akun yang sedang aktif di HP Anda. Jika kode hangus atau WhatsApp meminta kode baru, cukup klik tombol <strong>"Minta Kode Baru"</strong> di atas.
+                            </div>
                         </div>
                     </div>
 

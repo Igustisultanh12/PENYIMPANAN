@@ -1,5 +1,5 @@
+﻿const makeWASocket = require('@whiskeysockets/baileys').default || require('@whiskeysockets/baileys');
 const {
-    default: makeWASocket,
     useMultiFileAuthState,
     DisconnectReason,
     fetchLatestBaileysVersion
@@ -24,6 +24,8 @@ function formatPhoneNumber(number) {
     let clean = String(number).replace(/[^0-9]/g, '');
     if (clean.startsWith('0')) {
         clean = '62' + clean.slice(1);
+    } else if (clean.startsWith('8')) {
+        clean = '62' + clean;
     }
     return clean;
 }
@@ -37,79 +39,191 @@ function formatToJid(number) {
 }
 
 /**
- * Inisialisasi Koneksi Baileys dengan Pairing Code
+ * Tutup socket lama secara bersih
  */
-async function connectToWhatsApp(phoneNumber = null) {
-    if (phoneNumber) {
-        savedPhoneNumber = formatPhoneNumber(phoneNumber);
+function closeCurrentSocket() {
+    if (globalSock) {
+        try {
+            globalSock.ev.removeAllListeners();
+            globalSock.end(undefined);
+        } catch (_) {}
+        globalSock = null;
+    }
+}
+
+/**
+ * Hubungkan sesi yang sudah terdaftar sebelumnya (jika creds.json ada)
+ */
+async function connectExistingSession() {
+    const authPath = path.join(__dirname, 'auth_info_baileys');
+    const credsPath = path.join(authPath, 'creds.json');
+
+    // Jika belum pernah ditautkan, jangan lakukan inisialisasi socket
+    if (!fs.existsSync(credsPath)) {
+        console.log('ℹ️ Belum ada sesi WhatsApp tersimpan. Menunggu pairing dari dashboard...');
+        connectionStatus = 'OFFLINE';
+        return;
     }
 
     try {
-        const { version, isLatest } = await fetchLatestBaileysVersion();
-        console.log(`\n========================================`);
-        console.log(`📡 WhatsApp Gateway v${version.join('.')} (Latest: ${isLatest})`);
-        console.log(`⚙️  Metode Otentikasi: Pairing Code (Tanpa QR Code)`);
-        console.log(`========================================\n`);
+        closeCurrentSocket();
 
-        const authPath = path.join(__dirname, 'auth_info_baileys');
         const { state, saveCreds } = await useMultiFileAuthState(authPath);
+        const { version } = await fetchLatestBaileysVersion();
 
         const sock = makeWASocket({
             auth: state,
             version,
-            logger: pino({ level: 'silent' }), // Heningkan log internal baileys
-            browser: ["Chrome (Linux)", "Chrome", "120.0.0.0"],
+            logger: pino({ level: 'silent' }),
+            browser: ["Ubuntu", "Chrome", "20.0.04"],
             syncFullHistory: false,
             connectTimeoutMs: 60000,
             keepAliveIntervalMs: 30000,
-            printQRInTerminal: false, // Tidak menggunakan QR Code sama sekali
+            printQRInTerminal: false,
         });
 
-        sock.ev.on('connection.update', async (update) => {
+        globalSock = sock;
+        sock.ev.on('creds.update', saveCreds);
+
+        sock.ev.on('connection.update', (update) => {
             const { connection, lastDisconnect } = update;
 
             if (connection === 'close') {
                 connectionStatus = 'OFFLINE';
-                latestPairingCode = null;
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+                const isLoggedOut = statusCode === DisconnectReason.loggedOut;
 
-                console.log(`❌ Koneksi Terputus (Status Code: ${statusCode}). Menyambung ulang: ${shouldReconnect}`);
+                console.log(`❌ Sesi Terputus (Status Code: ${statusCode}). Logged out: ${isLoggedOut}`);
 
-                if (shouldReconnect) {
-                    setTimeout(() => connectToWhatsApp(savedPhoneNumber), 5000);
-                } else {
-                    console.log('⚠️ Sesi Keluar (Logged Out). Siap untuk pairing baru.');
+                if (!isLoggedOut && sock.authState?.creds?.registered) {
+                    console.log('🔄 Mencoba menghubungkan ulang dalam 5 detik...');
+                    setTimeout(() => connectExistingSession(), 5000);
                 }
             } else if (connection === 'open') {
                 connectionStatus = 'ONLINE';
                 latestPairingCode = null;
-                console.log('\n✅ GATEWAY WHATSAPP LIVE & TERHUBUNG DENGAN PAIRING CODE!\n');
+                console.log('\n✅ GATEWAY WHATSAPP LIVE & TERHUBUNG!\n');
             }
         });
+    } catch (err) {
+        console.error('❌ Gagal menyambung sesi yang ada:', err.message);
+        setTimeout(() => connectExistingSession(), 5000);
+    }
+}
 
-        sock.ev.on('creds.update', saveCreds);
-        globalSock = sock;
+/**
+ * Request Kode Pairing Baru (Hanya dipanggil saat Admin menekan tombol di web)
+ */
+async function requestNewPairingCode(rawPhoneNumber) {
+    const phone = formatPhoneNumber(rawPhoneNumber);
+    if (!phone) {
+        throw new Error('Nomor WhatsApp wajib diisi (contoh: 081234567890).');
+    }
 
-        // Jika nomor sudah ada dan belum tersambung, request pairing code otomatis
-        if (!sock.authState.creds.registered && savedPhoneNumber) {
-            setTimeout(async () => {
-                try {
-                    const code = await sock.requestPairingCode(savedPhoneNumber);
-                    latestPairingCode = code;
-                    connectionStatus = 'WAITING_PAIR';
-                    console.log(`\n🔑 KODE PAIRING WHATSAPP: ${code}`);
-                    console.log(`👉 Masukkan kode 8 digit di atas pada menu Perangkat Tertaut di WhatsApp HP Anda.\n`);
-                } catch (err) {
-                    console.error('Gagal generate pairing code otomatis:', err.message);
-                }
-            }, 3000);
-        } else if (!sock.authState.creds.registered) {
-            connectionStatus = 'WAITING_PAIR';
+    savedPhoneNumber = phone;
+    console.log(`\n========================================`);
+    console.log(`📡 Memulai Pairing Code untuk nomor: ${phone}`);
+    console.log(`========================================`);
+
+    // 1. Tutup socket yang sedang aktif
+    closeCurrentSocket();
+
+    // 2. Bersihkan folder auth lama agar tidak ada token lama yang berkonflik
+    const authPath = path.join(__dirname, 'auth_info_baileys');
+    if (fs.existsSync(authPath)) {
+        try {
+            fs.rmSync(authPath, { recursive: true, force: true });
+            console.log('🗑️  Folder sesi lama dibersihkan.');
+        } catch (e) {
+            console.warn('Gagal menghapus folder sesi lama:', e.message);
         }
-    } catch (error) {
-        console.error('❌ Error inisialisasi Baileys:', error.message);
-        setTimeout(() => connectToWhatsApp(savedPhoneNumber), 5000);
+    }
+
+    // 3. Buat sesi Baileys baru khusus untuk pairing
+    const { state, saveCreds } = await useMultiFileAuthState(authPath);
+    const { version } = await fetchLatestBaileysVersion();
+
+    const sock = makeWASocket({
+        auth: state,
+        version,
+        logger: pino({ level: 'silent' }),
+        browser: ["Ubuntu", "Chrome", "20.0.04"],
+        syncFullHistory: false,
+        connectTimeoutMs: 60000,
+        keepAliveIntervalMs: 30000,
+        printQRInTerminal: false,
+    });
+
+    globalSock = sock;
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+
+        if (connection === 'close') {
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+
+            console.log(`ℹ️ Status Koneksi Berubah: Tutup (Code: ${statusCode})`);
+
+            // HANYA auto-reconnect jika sudah terdaftar dan bukan logged out
+            // JANGAN auto-reconnect saat masih pairing, agar kode tidak hangus!
+            if (sock.authState?.creds?.registered && !isLoggedOut) {
+                connectionStatus = 'OFFLINE';
+                console.log('🔄 Reconnecting sesi terdaftar dalam 5 detik...');
+                setTimeout(() => connectExistingSession(), 5000);
+            } else {
+                connectionStatus = 'OFFLINE';
+            }
+        } else if (connection === 'open') {
+            connectionStatus = 'ONLINE';
+            latestPairingCode = null;
+            console.log('\n========================================');
+            console.log('🎉 WHATSAPP BERHASIL DITAUTKAN DAN LIVE!');
+            console.log('========================================\n');
+        }
+    });
+
+    // 4. Tunggu inisialisasi WebSocket sebelum request pairing code (wajib jeda 2 detik)
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    if (!sock.authState.creds.registered) {
+        const code = await sock.requestPairingCode(phone);
+        latestPairingCode = code;
+        connectionStatus = 'WAITING_PAIR';
+
+        console.log(`\n========================================`);
+        console.log(`🔑 KODE PAIRING WHATSAPP: ${code}`);
+        console.log(`👉 Buka WhatsApp di HP > Perangkat Tertaut > Tautkan dengan nomor telepon saja`);
+        console.log(`👉 Masukkan kode 8 digit di atas dalam waktu 60 detik`);
+        console.log(`========================================\n`);
+
+        return code;
+    } else {
+        connectionStatus = 'ONLINE';
+        return null;
+    }
+}
+
+/**
+ * Reset Sesi WhatsApp secara penuh
+ */
+async function resetWhatsAppSession() {
+    console.log('🔄 Mereset sesi WhatsApp...');
+    closeCurrentSocket();
+
+    connectionStatus = 'OFFLINE';
+    latestPairingCode = null;
+    savedPhoneNumber = null;
+
+    const authPath = path.join(__dirname, 'auth_info_baileys');
+    if (fs.existsSync(authPath)) {
+        try {
+            fs.rmSync(authPath, { recursive: true, force: true });
+            console.log('🗑️  Folder sesi auth_info_baileys berhasil dibersihkan.');
+        } catch (e) {
+            console.warn('Gagal menghapus folder auth:', e.message);
+        }
     }
 }
 
@@ -156,61 +270,26 @@ const server = http.createServer(async (req, res) => {
 
     // Endpoint Permintaan Kode Pairing (/pairing-code)
     if (parsedUrl.pathname === '/pairing-code') {
-        const handlePairingRequest = async (rawPhone) => {
-            const phone = formatPhoneNumber(rawPhone);
-            if (!phone) {
-                res.writeHead(400);
-                res.end(JSON.stringify({
-                    status: 'error',
-                    message: 'Nomor WhatsApp wajib diisi (contoh: 081234567890).'
-                }));
-                return;
-            }
-
-            savedPhoneNumber = phone;
-
-            if (connectionStatus === 'ONLINE') {
-                res.end(JSON.stringify({
-                    status: 'already_connected',
-                    message: 'WhatsApp sudah terhubung.',
-                    pairing_code: null
-                }));
-                return;
-            }
-
+        const handlePairing = async (rawPhone) => {
             try {
-                // Bersihkan sesi lama jika ada tapi tidak aktif
-                if (!globalSock || !globalSock.authState?.creds?.registered) {
-                    const authPath = path.join(__dirname, 'auth_info_baileys');
-                    if (fs.existsSync(authPath)) {
-                        fs.rmSync(authPath, { recursive: true, force: true });
-                    }
-                    await connectToWhatsApp(phone);
-                    // Tunggu inisialisasi socket Baileys
-                    await new Promise(r => setTimeout(r, 2500));
+                if (connectionStatus === 'ONLINE') {
+                    res.end(JSON.stringify({
+                        status: 'already_connected',
+                        message: 'WhatsApp sudah terhubung.',
+                        pairing_code: null
+                    }));
+                    return;
                 }
 
-                if (globalSock) {
-                    const code = await globalSock.requestPairingCode(phone);
-                    latestPairingCode = code;
-                    connectionStatus = 'WAITING_PAIR';
-                    console.log(`\n🔑 KODE PAIRING BARU UNTUK ${phone}: ${code}\n`);
-
-                    res.end(JSON.stringify({
-                        status: 'success',
-                        pairing_code: code,
-                        phone: phone,
-                        message: 'Kode pairing berhasil dibuat.'
-                    }));
-                } else {
-                    res.writeHead(500);
-                    res.end(JSON.stringify({
-                        status: 'error',
-                        message: 'Gagal menginisialisasi socket WhatsApp.'
-                    }));
-                }
+                const code = await requestNewPairingCode(rawPhone);
+                res.end(JSON.stringify({
+                    status: 'success',
+                    pairing_code: code,
+                    phone: savedPhoneNumber,
+                    message: 'Kode pairing berhasil dibuat. Masukkan segera di WhatsApp HP Anda.'
+                }));
             } catch (err) {
-                console.error('❌ Gagal request pairing code:', err.message);
+                console.error('❌ Gagal membuat kode pairing:', err.message);
                 res.writeHead(500);
                 res.end(JSON.stringify({
                     status: 'error',
@@ -225,13 +304,13 @@ const server = http.createServer(async (req, res) => {
             req.on('end', () => {
                 try {
                     const parsed = JSON.parse(body || '{}');
-                    handlePairingRequest(parsed.number || parsedUrl.query.number);
+                    handlePairing(parsed.number || parsedUrl.query.number);
                 } catch {
-                    handlePairingRequest(parsedUrl.query.number);
+                    handlePairing(parsedUrl.query.number);
                 }
             });
         } else {
-            handlePairingRequest(parsedUrl.query.number);
+            handlePairing(parsedUrl.query.number);
         }
         return;
     }
@@ -239,27 +318,10 @@ const server = http.createServer(async (req, res) => {
     // Reset Session / Logout endpoint
     if (parsedUrl.pathname === '/reset-session' || parsedUrl.pathname === '/logout') {
         try {
-            console.log('🔄 Mereset sesi WhatsApp dari Dashboard...');
-            if (globalSock) {
-                try { await globalSock.logout(); } catch (_) {}
-                try { globalSock.end(undefined); } catch (_) {}
-            }
-            globalSock = null;
-            connectionStatus = 'OFFLINE';
-            latestPairingCode = null;
-            savedPhoneNumber = null;
-
-            const authPath = path.join(__dirname, 'auth_info_baileys');
-            if (fs.existsSync(authPath)) {
-                fs.rmSync(authPath, { recursive: true, force: true });
-                console.log('🗑️  Folder sesi auth_info_baileys dibersihkan.');
-            }
-
-            setTimeout(() => connectToWhatsApp(), 1500);
-
+            await resetWhatsAppSession();
             res.end(JSON.stringify({
                 status: 'success',
-                message: 'Sesi WhatsApp berhasil di-reset. Siap meminta kode pairing baru.'
+                message: 'Sesi WhatsApp berhasil di-reset. Siap untuk meminta kode pairing baru.'
             }));
         } catch (err) {
             console.error('❌ Gagal reset sesi:', err.message);
@@ -334,8 +396,9 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
     console.log(`🚀 WhatsApp Gateway (Mode Pairing Code) aktif di port ${PORT}`);
-    console.log(`👉 Endpoint Status  : http://127.0.0.1:${PORT}/status-wa`);
-    console.log(`👉 Endpoint Pairing : http://127.0.0.1:${PORT}/pairing-code?number=08xxx`);
+    console.log(`👉 Status  : http://127.0.0.1:${PORT}/status-wa`);
+    console.log(`👉 Pairing : http://127.0.0.1:${PORT}/pairing-code?number=08xxx`);
 });
 
-connectToWhatsApp();
+// Cek apakah ada sesi aktif yang tersimpan untuk langsung dihubungkan
+connectExistingSession();
