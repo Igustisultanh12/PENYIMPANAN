@@ -14,6 +14,8 @@ import ShareModal from '@/components/ShareModal.vue';
 import CreateFolderModal from '@/components/CreateFolderModal.vue';
 import RenameModal from '@/components/RenameModal.vue';
 import MoveItemModal from '@/components/MoveItemModal.vue';
+import OfficeEditorModal from '@/components/OfficeEditorModal.vue';
+import CreateDocumentModal from '@/components/CreateDocumentModal.vue';
 import {
     LayoutGrid,
     List,
@@ -22,6 +24,10 @@ import {
     Folder as FolderIcon,
     FileUp,
     Inbox,
+    FileText,
+    ChevronDown,
+    Sheet,
+    Presentation,
 } from 'lucide-vue-next';
 
 const route = useRoute();
@@ -31,6 +37,12 @@ const { t } = useI18n();
 
 // Modals state
 const isCreateFolderOpen = ref(false);
+const isCreateDocOpen = ref(false);
+const defaultDocType = ref<'document' | 'spreadsheet' | 'presentation'>('document');
+const isOfficeModalOpen = ref(false);
+const activeOfficeFile = ref<FileItem | null>(null);
+const isDocDropdownOpen = ref(false);
+
 const activePreviewFile = ref<FileItem | null>(null);
 const activeShareItem = ref<FileItem | Folder | null>(null);
 const activeShareType = ref<'file' | 'folder'>('file');
@@ -96,6 +108,35 @@ function openMove(item: FileItem | Folder, type: 'file' | 'folder') {
 function handleDownload(file: FileItem) {
     window.open(`/api/v1/files/${file.uuid}/preview`, '_blank');
 }
+
+function openCreateDoc(type: 'document' | 'spreadsheet' | 'presentation') {
+    defaultDocType.value = type;
+    isDocDropdownOpen.value = false;
+    isCreateDocOpen.value = true;
+}
+
+function handleFilePreview(file: FileItem) {
+    const ext = (file.extension || '').toLowerCase();
+    if (['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt'].includes(ext)) {
+        activeOfficeFile.value = file;
+        isOfficeModalOpen.value = true;
+    } else {
+        activePreviewFile.value = file;
+    }
+}
+
+function handleDocCreated(file: FileItem) {
+    drive.files.unshift(file);
+    activeOfficeFile.value = file;
+    isOfficeModalOpen.value = true;
+}
+
+function handleOfficeSaved(file: FileItem) {
+    const idx = drive.files.findIndex(f => f.uuid === file.uuid);
+    if (idx !== -1) {
+        drive.files[idx] = file;
+    }
+}
 </script>
 
 <template>
@@ -129,6 +170,45 @@ function handleDownload(file: FileItem) {
                     <FolderPlus class="w-3.5 h-3.5 text-blue-500" />
                     <span>{{ t('action.new_folder') }}</span>
                 </button>
+
+                <!-- New Office Document Dropdown -->
+                <div class="relative">
+                    <button
+                        @click="isDocDropdownOpen = !isDocDropdownOpen"
+                        class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors shadow-xs"
+                    >
+                        <FileText class="w-3.5 h-3.5" />
+                        <span>Dokumen Baru</span>
+                        <ChevronDown class="w-3 h-3 ml-0.5" />
+                    </button>
+
+                    <div
+                        v-if="isDocDropdownOpen"
+                        class="absolute right-0 sm:left-0 sm:right-auto mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl py-1.5 z-30 animate-in fade-in zoom-in-95 duration-100"
+                    >
+                        <button
+                            @click="openCreateDoc('document')"
+                            class="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 text-left"
+                        >
+                            <FileText class="w-4 h-4 text-blue-500" />
+                            <span>Dokumen Teks (.docx)</span>
+                        </button>
+                        <button
+                            @click="openCreateDoc('spreadsheet')"
+                            class="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 text-left"
+                        >
+                            <Sheet class="w-4 h-4 text-emerald-500" />
+                            <span>Lembar Sebar (.xlsx)</span>
+                        </button>
+                        <button
+                            @click="openCreateDoc('presentation')"
+                            class="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 text-left"
+                        >
+                            <Presentation class="w-4 h-4 text-amber-500" />
+                            <span>Presentasi Slide (.pptx)</span>
+                        </button>
+                    </div>
+                </div>
 
                 <!-- View Mode Toggle -->
                 <div class="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
@@ -198,7 +278,7 @@ function handleDownload(file: FileItem) {
                         v-for="file in drive.files"
                         :key="file.uuid"
                         :file="file"
-                        @preview="f => activePreviewFile = f"
+                        @preview="handleFilePreview"
                         @download="handleDownload"
                         @share="f => openShare(f, 'file')"
                         @star="f => drive.toggleStarFile(f)"
@@ -212,7 +292,7 @@ function handleDownload(file: FileItem) {
                 <FileTable
                     v-else-if="drive.viewMode === 'list' && drive.files.length > 0"
                     :files="drive.files"
-                    @preview="f => activePreviewFile = f"
+                    @preview="handleFilePreview"
                     @download="handleDownload"
                     @share="f => openShare(f, 'file')"
                     @star="f => drive.toggleStarFile(f)"
@@ -246,6 +326,17 @@ function handleDownload(file: FileItem) {
 
         <!-- Modals -->
         <CreateFolderModal :is-open="isCreateFolderOpen" @close="isCreateFolderOpen = false" />
+        <CreateDocumentModal
+            v-model="isCreateDocOpen"
+            :folder-uuid="drive.currentFolderUuid"
+            :default-type="defaultDocType"
+            @created="handleDocCreated"
+        />
+        <OfficeEditorModal
+            v-model="isOfficeModalOpen"
+            :file="activeOfficeFile"
+            @saved="handleOfficeSaved"
+        />
         <FilePreviewModal
             :file="activePreviewFile"
             @close="activePreviewFile = null"

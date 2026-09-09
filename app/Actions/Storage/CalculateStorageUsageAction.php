@@ -15,6 +15,11 @@ class CalculateStorageUsageAction
      */
     public function execute(User $user): StorageUsage
     {
+        return $this->recalculate($user);
+    }
+
+    public function recalculate(User $user): StorageUsage
+    {
         $usage = StorageUsage::firstOrCreate(
             ['user_id' => $user->id],
             ['quota_bytes' => 10737418240] // 10 GB

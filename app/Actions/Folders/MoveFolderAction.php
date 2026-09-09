@@ -10,6 +10,10 @@ use Illuminate\Validation\ValidationException;
 
 class MoveFolderAction
 {
+    public function __construct(
+        protected \App\Services\SyncChangeLogger $syncLogger
+    ) {}
+
     public function execute(User $user, Folder $folder, ?string $targetParentUuid = null): Folder
     {
         $newParentId = null;
@@ -52,6 +56,9 @@ class MoveFolderAction
         Cache::forget("user:{$user->uuid}:folders:" . ($oldParentId ?: 'root'));
         Cache::forget("user:{$user->uuid}:folders:" . ($newParentId ?: 'root'));
 
+        $freshFolder = $folder->fresh();
+        $this->syncLogger->logFolderChange($user, $freshFolder, 'moved');
+
         AuditLog::create([
             'user_id' => $user->id,
             'action' => 'folder.move',
@@ -60,6 +67,6 @@ class MoveFolderAction
             'metadata' => ['from_parent' => $oldParentId, 'to_parent' => $newParentId],
         ]);
 
-        return $folder->fresh();
+        return $freshFolder;
     }
 }

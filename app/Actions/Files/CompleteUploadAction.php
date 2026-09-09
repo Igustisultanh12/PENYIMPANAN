@@ -23,7 +23,8 @@ class CompleteUploadAction
     public function __construct(
         protected StorageService $storageService,
         protected FileSecurityValidator $securityValidator,
-        protected CalculateStorageUsageAction $storageUsageAction
+        protected CalculateStorageUsageAction $storageUsageAction,
+        protected \App\Services\SyncChangeLogger $syncLogger
     ) {}
 
     public function execute(User $user, string $uploadId): FileItem
@@ -139,7 +140,10 @@ class CompleteUploadAction
             GenerateThumbnailJob::dispatch($fileItem);
         }
 
-        // 9. Audit Log
+        // 9. Change Feed for Desktop Sync
+        $this->syncLogger->logFileChange($user, $fileItem, 'created');
+
+        // 10. Audit Log
         AuditLog::create([
             'user_id' => $user->id,
             'action' => 'file.chunk_upload_complete',

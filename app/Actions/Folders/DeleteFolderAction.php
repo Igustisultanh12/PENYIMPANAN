@@ -10,6 +10,10 @@ use Illuminate\Support\Facades\Cache;
 
 class DeleteFolderAction
 {
+    public function __construct(
+        protected \App\Services\SyncChangeLogger $syncLogger
+    ) {}
+
     public function execute(User $user, Folder $folder): void
     {
         $parentId = $folder->parent_id;
@@ -26,6 +30,9 @@ class DeleteFolderAction
         $folder->delete(); // Soft delete
 
         Cache::forget("user:{$user->uuid}:folders:" . ($parentId ?: 'root'));
+
+        // Change Feed for Desktop Sync
+        $this->syncLogger->logFolderChange($user, $folder, 'deleted');
 
         AuditLog::create([
             'user_id' => $user->id,

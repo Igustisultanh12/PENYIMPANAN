@@ -159,6 +159,8 @@ class FileController extends Controller
 
         $file->save();
 
+        app(\App\Services\SyncChangeLogger::class)->logFileChange($request->user(), $file, 'updated');
+
         return response()->json([
             'success' => true,
             'message' => 'Berkas berhasil diperbarui.',

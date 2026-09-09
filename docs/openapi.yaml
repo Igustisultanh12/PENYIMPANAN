@@ -160,6 +160,247 @@ paths:
         '201':
           description: Share link created
 
+  /sync/changes:
+    get:
+      summary: Incremental change feed for desktop client sync
+      tags: [Desktop Sync]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: integer, default: 0 }
+        - name: device_id
+          in: query
+          schema: { type: string }
+        - name: exclude_self
+          in: query
+          schema: { type: boolean, default: true }
+      responses:
+        '200':
+          description: List of incremental file and folder changes
+
+  /sync/checkpoint:
+    post:
+      summary: Acknowledge sync progress from desktop client
+      tags: [Desktop Sync]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_id, cursor]
+              properties:
+                device_id: { type: string }
+                cursor: { type: integer }
+      responses:
+        '200':
+          description: Checkpoint acknowledged
+
+  /sync/conflict:
+    post:
+      summary: Resolve synchronization conflicts
+      tags: [Desktop Sync]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file_uuid, strategy]
+              properties:
+                file_uuid: { type: string }
+                strategy: { type: string, enum: [keep_local, keep_cloud, keep_both] }
+                device_name: { type: string }
+                file: { type: string, format: binary }
+      responses:
+        '200':
+          description: Conflict resolved according to selected strategy
+
+  /devices:
+    get:
+      summary: List all registered desktop sync devices
+      tags: [Devices]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of user devices
+
+  /devices/register:
+    post:
+      summary: Register or update desktop sync client device
+      tags: [Devices]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_id, device_name]
+              properties:
+                device_id: { type: string }
+                device_name: { type: string }
+                platform: { type: string, enum: [windows, macos, linux] }
+                client_version: { type: string }
+                settings: { type: object }
+      responses:
+        '201':
+          description: Device registered successfully
+
+  /devices/{uuid}:
+    delete:
+      summary: Revoke desktop device access without deleting local PC files
+      tags: [Devices]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Device access revoked safely
+
+  /office/templates:
+    get:
+      summary: Get document templates for Word, Excel, and PowerPoint
+      tags: [Office Suite]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: type
+          in: query
+          schema: { type: string, enum: [document, spreadsheet, presentation] }
+      responses:
+        '200':
+          description: Templates list
+
+  /office/create:
+    post:
+      summary: Create a new Office document (docx, xlsx, pptx)
+      tags: [Office Suite]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name: { type: string }
+                type: { type: string, enum: [document, spreadsheet, presentation] }
+                folder_uuid: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Document created with valid OpenXML payload
+
+  /office/session/{fileUuid}:
+    get:
+      summary: Open or resume an online office editing session
+      tags: [Office Suite]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: fileUuid
+          in: path
+          required: true
+          schema: { type: string }
+        - name: mode
+          in: query
+          schema: { type: string, enum: [edit, view], default: edit }
+      responses:
+        '200':
+          description: Office session token, document draft, and lock status
+
+  /office/draft/{sessionToken}:
+    post:
+      summary: Autosave document draft during active editing
+      tags: [Office Suite]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: sessionToken
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [draft]
+              properties:
+                draft: { type: object }
+      responses:
+        '200':
+          description: Draft autosaved
+
+  /office/commit/{sessionToken}:
+    post:
+      summary: Commit document changes to storage and create a new version
+      tags: [Office Suite]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: sessionToken
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                draft: { type: object }
+                binary_base64: { type: string }
+      responses:
+        '200':
+          description: New file version saved
+
+  /office/lock/{fileUuid}:
+    post:
+      summary: Acquire or heartbeat document lock
+      tags: [Office Suite]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: fileUuid
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Lock acquired or renewed
+        '423':
+          description: Document currently locked by another user
+    delete:
+      summary: Release document lock
+      tags: [Office Suite]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: fileUuid
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Lock released
+
 components:
   securitySchemes:
     BearerAuth:

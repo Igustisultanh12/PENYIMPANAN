@@ -9,6 +9,10 @@ use App\Models\User;
 
 class DeleteFileAction
 {
+    public function __construct(
+        protected \App\Services\SyncChangeLogger $syncLogger
+    ) {}
+
     public function execute(User $user, FileItem $file): void
     {
         $folderId = $file->folder_id;
@@ -23,6 +27,8 @@ class DeleteFileAction
         ]);
 
         $file->delete(); // Soft delete
+
+        $this->syncLogger->logFileChange($user, $file, 'deleted');
 
         AuditLog::create([
             'user_id' => $user->id,

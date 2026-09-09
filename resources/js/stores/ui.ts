@@ -45,6 +45,10 @@ export const useUiStore = defineStore('ui', () => {
         toasts.value = toasts.value.filter(t => t.id !== id);
     }
 
+    function addToast(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', title?: string) {
+        notify(message, type, title);
+    }
+
     return {
         isDarkMode,
         isSidebarCollapsed,
@@ -53,6 +57,7 @@ export const useUiStore = defineStore('ui', () => {
         initTheme,
         toggleSidebar,
         notify,
+        addToast,
         removeToast,
     };
 });

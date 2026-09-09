@@ -23,7 +23,8 @@ class UploadFileAction
     public function __construct(
         protected StorageService $storageService,
         protected FileSecurityValidator $securityValidator,
-        protected CalculateStorageUsageAction $storageUsageAction
+        protected CalculateStorageUsageAction $storageUsageAction,
+        protected \App\Services\SyncChangeLogger $syncLogger
     ) {}
 
     public function execute(User $user, UploadedFile $file, ?string $folderUuid = null): FileItem
@@ -84,6 +85,8 @@ class UploadFileAction
             ->whereNull('deleted_at')
             ->first();
 
+        $isNewVersion = (bool) $existingFile;
+
         if ($existingFile) {
             // Create new version
             $newVersion = $existingFile->version + 1;
@@ -137,7 +140,10 @@ class UploadFileAction
             GenerateThumbnailJob::dispatch($fileItem);
         }
 
-        // 10. Audit Log
+        // 10. Change Feed for Desktop Sync
+        $this->syncLogger->logFileChange($user, $fileItem, $isNewVersion ? 'updated' : 'created');
+
+        // 11. Audit Log
         AuditLog::create([
             'user_id' => $user->id,
             'action' => 'file.upload',

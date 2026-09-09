@@ -1,12 +1,15 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\DeviceController;
 use App\Http\Controllers\Api\V1\FileController;
 use App\Http\Controllers\Api\V1\FolderController;
+use App\Http\Controllers\Api\V1\OfficeController;
 use App\Http\Controllers\Api\V1\SearchController;
 use App\Http\Controllers\Api\V1\SecurityController;
 use App\Http\Controllers\Api\V1\ShareController;
 use App\Http\Controllers\Api\V1\StorageController;
+use App\Http\Controllers\Api\V1\SyncController;
 use App\Http\Controllers\Api\V1\UploadChunkController;
 use Illuminate\Support\Facades\Route;
 
@@ -54,7 +57,8 @@ Route::prefix('v1')->group(function () {
             Route::get('files/{uuid}', [FileController::class, 'show']);
             Route::patch('files/{uuid}', [FileController::class, 'update']);
             Route::post('files/{uuid}/move', [FileController::class, 'move']);
-            Route::get('files/{uuid}/download', [FileController::class, 'download']);
+            Route::get('files/{uuid}/download', [FileController::class, 'download'])
+                ->name('api.v1.files.download');
             Route::get('files/{uuid}/preview', [FileController::class, 'preview']);
             Route::delete('files/{uuid}', [FileController::class, 'destroy']);
             Route::post('files/{id}/restore', [FileController::class, 'restore']);
@@ -94,6 +98,33 @@ Route::prefix('v1')->group(function () {
                 Route::get('api-tokens', [SecurityController::class, 'apiTokens']);
                 Route::post('api-tokens', [SecurityController::class, 'createApiToken']);
                 Route::delete('api-tokens/{tokenId}', [SecurityController::class, 'revokeApiToken']);
+            });
+
+            // Desktop Sync Engine
+            Route::prefix('sync')->group(function () {
+                Route::get('changes', [SyncController::class, 'changes']);
+                Route::post('checkpoint', [SyncController::class, 'checkpoint']);
+                Route::post('conflict', [SyncController::class, 'resolveConflict']);
+            });
+
+            // Connected Desktop Devices
+            Route::prefix('devices')->group(function () {
+                Route::get('/', [DeviceController::class, 'index']);
+                Route::post('register', [DeviceController::class, 'register']);
+                Route::post('{uuid}/heartbeat', [DeviceController::class, 'heartbeat']);
+                Route::patch('{uuid}/settings', [DeviceController::class, 'updateSettings']);
+                Route::delete('{uuid}', [DeviceController::class, 'revoke']);
+            });
+
+            // Online Office Suite
+            Route::prefix('office')->group(function () {
+                Route::get('templates', [OfficeController::class, 'templates']);
+                Route::post('create', [OfficeController::class, 'create']);
+                Route::get('session/{fileUuid}', [OfficeController::class, 'session']);
+                Route::post('draft/{sessionToken}', [OfficeController::class, 'saveDraft']);
+                Route::post('commit/{sessionToken}', [OfficeController::class, 'commit']);
+                Route::post('lock/{fileUuid}', [OfficeController::class, 'lock']);
+                Route::delete('lock/{fileUuid}', [OfficeController::class, 'unlock']);
             });
         });
     });

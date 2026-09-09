@@ -38,6 +38,20 @@
   - Dukungan i18n dwibahasa (Bahasa Indonesia & English).
   - Drag-and-drop berkas langsung ke peramban.
   - Pratinjau berkas langsung (Gambar, Video, Audio, PDF).
+- 🖥️ **Desktop Sync Client (Tauri + Rust + SQLite):**
+  - Pemantau perubahan file sistem secara realtime (*native cross-platform OS watcher*).
+  - Feed perubahan inkremental berbasis cursor server (`/api/v1/sync/changes`).
+  - Resolusi konflik cerdas 3 strategi: *Keep Local*, *Keep Cloud*, *Keep Both*.
+  - Sinkronisasi selektif folder (*Selective Sync*) untuk hemat ruang hardisk PC.
+  - Manajemen daya baterai dan deteksi jaringan bertarif (*metered connection*).
+  - Jaminan keamanan: Pencabutan akses perangkat server TIDAK PERNAH menghapus file lokal di komputer pengguna.
+- 📝 **Online Office Suite Terintegrasi:**
+  - Editor Dokumen Teks (`.docx`) dengan formatting ribbon (Bold, Italic, H1/H2/H3, Justify, Lists).
+  - Editor Lembar Sebar / Spreadsheet (`.xlsx`) dengan formula bar interaktif (`=SUM()`, `=AVERAGE()`) dan grid dinamis.
+  - Editor Presentasi Slide (`.pptx`) dengan slide thumbnails navigator, tema warna, catatan pembicara, dan mode slideshow layar penuh.
+  - Sistem penguncian dokumen (*document locking*) dengan heartbeat lease untuk mencegah tabrakan edit konkuren.
+  - Draft autosave berkala dan pembuatan versi berkas otomatis (*version control*).
+  - Wizard template dokumen bawaan (Proposal Proyek, Anggaran Bulanan, Pitch Deck).
 - ⚡ **Background Queue & Caching:** Thumbnail generator webp otomatis, sinkronisasi storage usage asinkron, dan caching Redis untuk respon responsif di bawah 50ms.
 - 🔑 **Developer REST API v1:** API lengkap dengan otentikasi Sanctum dan manajemen Personal Access Token.
 

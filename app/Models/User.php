@@ -119,6 +119,26 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasMany(Favorite::class);
     }
 
+    public function devices(): HasMany
+    {
+        return $this->hasMany(UserDevice::class);
+    }
+
+    public function syncChanges(): HasMany
+    {
+        return $this->hasMany(SyncChange::class);
+    }
+
+    public function documentLocks(): HasMany
+    {
+        return $this->hasMany(DocumentLock::class);
+    }
+
+    public function officeSessions(): HasMany
+    {
+        return $this->hasMany(OfficeSession::class);
+    }
+
     public function isAdmin(): bool
     {
         return $this->role === UserRole::ADMIN || $this->role === UserRole::SUPER_ADMIN;

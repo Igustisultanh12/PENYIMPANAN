@@ -10,6 +10,10 @@ use Illuminate\Validation\ValidationException;
 
 class MoveFileAction
 {
+    public function __construct(
+        protected \App\Services\SyncChangeLogger $syncLogger
+    ) {}
+
     public function execute(User $user, FileItem $file, ?string $targetFolderUuid = null): FileItem
     {
         $targetFolderId = null;
@@ -31,6 +35,9 @@ class MoveFileAction
         $oldFolderId = $file->folder_id;
         $file->update(['folder_id' => $targetFolderId]);
 
+        $freshFile = $file->fresh();
+        $this->syncLogger->logFileChange($user, $freshFile, 'moved');
+
         AuditLog::create([
             'user_id' => $user->id,
             'action' => 'file.move',
@@ -43,6 +50,6 @@ class MoveFileAction
             ],
         ]);
 
-        return $file->fresh();
+        return $freshFile;
     }
 }

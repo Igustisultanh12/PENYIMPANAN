@@ -9,6 +9,10 @@ use App\Models\User;
 
 class RestoreFileAction
 {
+    public function __construct(
+        protected \App\Services\SyncChangeLogger $syncLogger
+    ) {}
+
     public function execute(User $user, int $fileId): FileItem
     {
         $file = FileItem::onlyTrashed()
@@ -22,6 +26,8 @@ class RestoreFileAction
             ->where('item_type', 'file')
             ->where('item_id', $fileId)
             ->delete();
+
+        $this->syncLogger->logFileChange($user, $file, 'restored');
 
         AuditLog::create([
             'user_id' => $user->id,

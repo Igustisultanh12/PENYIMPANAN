@@ -70,7 +70,7 @@ export const useUploadStore = defineStore('upload', () => {
 
             // Step 3: Stream chunks sequentially
             for (let i = 0; i < item.totalChunks; i++) {
-                if (item.status === 'paused') return;
+                if ((item.status as string) === 'paused') return;
 
                 item.currentChunk = i + 1;
 

@@ -20,7 +20,11 @@ import {
 const auth = useAuthStore();
 const ui = useUiStore();
 
-const activeTab = ref<'general' | 'sessions' | 'logs' | 'api'>('general');
+const activeTab = ref<'general' | 'sessions' | 'devices' | 'logs' | 'api'>('general');
+
+// Desktop Client Devices
+const desktopDevices = ref<any[]>([]);
+const isLoadingDevices = ref(false);
 
 // Password state
 const currentPassword = ref('');
@@ -150,8 +154,32 @@ async function revokeApiToken(id: number) {
     }
 }
 
+async function loadDesktopDevices() {
+    isLoadingDevices.value = true;
+    try {
+        const res = await http.get('/devices');
+        desktopDevices.value = res.data.data;
+    } catch {
+        // Handle error
+    } finally {
+        isLoadingDevices.value = false;
+    }
+}
+
+async function revokeDevice(uuid: string) {
+    if (!confirm('Cabut akses sinkronisasi perangkat ini? (Berkas di PC tetap tersimpan aman).')) return;
+    try {
+        await http.delete(`/devices/${uuid}`);
+        ui.notify('Akses sinkronisasi perangkat berhasil dicabut.', 'info');
+        loadDesktopDevices();
+    } catch {
+        ui.notify('Gagal mencabut perangkat.', 'error');
+    }
+}
+
 onMounted(() => {
     loadSessions();
+    loadDesktopDevices();
     loadAuditLogs();
     loadApiTokens();
 });
@@ -180,7 +208,14 @@ onMounted(() => {
                     class="px-3 py-1.5 rounded-lg transition-all"
                     :class="activeTab === 'sessions' ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'"
                 >
-                    Sesi Aktif
+                    Sesi Web
+                </button>
+                <button
+                    @click="activeTab = 'devices'"
+                    class="px-3 py-1.5 rounded-lg transition-all"
+                    :class="activeTab === 'devices' ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'"
+                >
+                    Perangkat Desktop
                 </button>
                 <button
                     @click="activeTab = 'logs'"
@@ -350,7 +385,101 @@ onMounted(() => {
             </div>
         </div>
 
-        <!-- Tab 3: Audit Logs -->
+        <!-- Tab 3: Desktop Sync Devices -->
+        <div v-else-if="activeTab === 'devices'" class="space-y-6">
+            <!-- Desktop Sync Client Download Banner -->
+            <div class="p-6 rounded-3xl bg-linear-to-r from-blue-600 to-indigo-700 text-white shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+                <div>
+                    <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 text-white text-[11px] font-bold mb-2">
+                        <span>Aplikasi Resmi Desktop</span>
+                    </div>
+                    <h3 class="text-lg font-bold">MyStorage Desktop Sync</h3>
+                    <p class="text-xs text-blue-100 mt-1 max-w-lg leading-relaxed">
+                        Sinkronisasi otomatis folder PC Anda secara langsung dengan cloud MyStorage. Mendukung background sync, deteksi konflik offline, dan selective folder sync.
+                    </p>
+                </div>
+                <a
+                    href="#download-desktop"
+                    class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-white text-blue-700 hover:bg-blue-50 text-xs font-bold shadow-lg transition-all shrink-0"
+                >
+                    <Laptop class="w-4 h-4" />
+                    <span>Unduh Klien PC</span>
+                </a>
+            </div>
+
+            <!-- Connected Devices List -->
+            <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Daftar Komputer Terhubung ({{ desktopDevices.length }})
+                    </h4>
+                    <button
+                        @click="loadDesktopDevices"
+                        class="text-xs text-blue-600 hover:underline"
+                    >
+                        Segarkan
+                    </button>
+                </div>
+
+                <div v-if="desktopDevices.length === 0" class="p-8 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800">
+                    <Laptop class="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
+                    <p class="text-xs font-semibold text-slate-600 dark:text-slate-300">Belum ada perangkat PC yang terhubung.</p>
+                    <p class="text-[11px] text-slate-400 mt-1">Unduh dan jalankan MyStorage Desktop untuk mengaktifkan sinkronisasi otomatis.</p>
+                </div>
+
+                <div v-else class="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden">
+                    <div
+                        v-for="d in desktopDevices"
+                        :key="d.id"
+                        class="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                    >
+                        <div class="flex items-center gap-3">
+                            <div class="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                <Laptop class="w-5 h-5" />
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <p class="text-xs font-bold text-slate-800 dark:text-slate-100">
+                                        {{ d.device_name }}
+                                    </p>
+                                    <span class="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-mono uppercase">
+                                        {{ d.platform }}
+                                    </span>
+                                    <span
+                                        class="px-2 py-0.5 rounded-md text-[10px] font-bold"
+                                        :class="d.status === 'active' ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600' : 'bg-slate-100 text-slate-500'"
+                                    >
+                                        {{ d.status === 'active' ? 'Aktif' : 'Dicabut' }}
+                                    </span>
+                                </div>
+                                <p class="text-[11px] text-slate-400 font-mono mt-0.5">
+                                    IP: {{ d.ip_address || '-' }} • Terakhir Sinkron: {{ d.last_synced_at ? new Date(d.last_synced_at).toLocaleString('id-ID') : 'Baru terdaftar' }} • Versi: {{ d.client_version }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-2 self-end sm:self-auto">
+                            <button
+                                v-if="d.status === 'active'"
+                                @click="revokeDevice(d.uuid)"
+                                class="px-3 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-xs font-semibold hover:bg-rose-100 transition-colors"
+                            >
+                                Cabut Akses
+                            </button>
+                            <span v-else class="text-xs text-slate-400 italic">
+                                Akses telah dicabut
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="text-[11px] text-slate-400 leading-relaxed px-1">
+                    * Catatan: Mencabut akses perangkat hanya memutus otorisasi sinkronisasi ke cloud MyStorage. Berkas yang sudah tersimpan di hardisk PC Anda tidak akan dihapus.
+                </p>
+            </div>
+        </div>
+
+        <!-- Tab 4: Audit Logs -->
         <div v-else-if="activeTab === 'logs'" class="space-y-4">
             <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden">
                 <table class="w-full text-left text-xs">

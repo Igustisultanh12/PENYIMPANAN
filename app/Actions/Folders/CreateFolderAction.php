@@ -10,6 +10,10 @@ use Illuminate\Validation\ValidationException;
 
 class CreateFolderAction
 {
+    public function __construct(
+        protected \App\Services\SyncChangeLogger $syncLogger
+    ) {}
+
     public function execute(User $user, string $name, ?string $parentUuid = null, string $color = '#3B82F6'): Folder
     {
         $parentId = null;
@@ -49,6 +53,9 @@ class CreateFolderAction
 
         // Invalidate folder listing cache
         Cache::forget("user:{$user->uuid}:folders:" . ($parentId ?: 'root'));
+
+        // Change Feed for Desktop Sync
+        $this->syncLogger->logFolderChange($user, $folder, 'created');
 
         AuditLog::create([
             'user_id' => $user->id,

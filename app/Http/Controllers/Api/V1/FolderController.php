@@ -95,6 +95,8 @@ class FolderController extends Controller
 
         $folder->update(array_filter($validated, fn($v) => !is_null($v)));
 
+        app(\App\Services\SyncChangeLogger::class)->logFolderChange($request->user(), $folder, 'updated');
+
         return response()->json([
             'success' => true,
             'message' => 'Folder berhasil diperbarui.',

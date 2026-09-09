@@ -86,6 +86,22 @@ class FileItem extends Model
         return $this->morphMany(Favorite::class, 'favorable');
     }
 
+    public function locks(): HasMany
+    {
+        return $this->hasMany(DocumentLock::class, 'file_id');
+    }
+
+    public function activeLock(): HasOne
+    {
+        return $this->hasOne(DocumentLock::class, 'file_id')
+            ->where('expires_at', '>', now());
+    }
+
+    public function officeSessions(): HasMany
+    {
+        return $this->hasMany(OfficeSession::class, 'file_id');
+    }
+
     public function getCategoryAttribute(): string
     {
         $mime = strtolower($this->mime_type ?? '');
