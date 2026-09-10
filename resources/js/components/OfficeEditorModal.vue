@@ -12,6 +12,7 @@ import {
     Bold,
     Italic,
     Underline,
+    Strikethrough,
     AlignLeft,
     AlignCenter,
     AlignRight,
@@ -19,6 +20,7 @@ import {
     List,
     ListOrdered,
     Plus,
+    Minus,
     Trash2,
     Copy,
     Play,
@@ -26,7 +28,13 @@ import {
     Loader2,
     Maximize2,
     Minimize2,
-    Table as TableIcon
+    Table as TableIcon,
+    PaintBucket,
+    Type,
+    WrapText,
+    Merge,
+    Sparkles,
+    TableProperties
 } from 'lucide-vue-next';
 import http from '../utils/http';
 import { useUiStore } from '../stores/ui';
@@ -71,16 +79,38 @@ interface CellData {
     value: string;
     computed?: string;
     bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    strikethrough?: boolean;
     color?: string;
+    bg?: string;
+    fontFamily?: string;
+    fontSize?: number;
+    align?: 'left' | 'center' | 'right';
+    border?: 'all' | 'box' | 'bottom' | 'none';
+    format?: 'general' | 'number' | 'currency' | 'percent';
+    wrap?: boolean;
 }
+
+interface MergeInfo {
+    rowspan: number;
+    colspan: number;
+    hidden: boolean;
+}
+
 const columns = ref(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']);
-const rowCount = ref(20);
+const rowCount = ref(25);
 const sheetGrid = ref<Record<string, CellData>>({});
 const selectedCell = ref('A1');
 const formulaInput = ref('');
 const availableSheets = ref<string[]>(['Sheet1']);
 const currentSheetName = ref('Sheet1');
+const mergeMap = ref<Record<string, MergeInfo>>({});
+const colWidths = ref<Record<string, number>>({});
+const showAllTableBorders = ref(true);
 let currentWorkbook: XLSX.WorkBook | null = null;
+
+const activeCellData = computed<CellData>(() => sheetGrid.value[selectedCell.value] || { value: '' });
 
 // 3. PPTX
 interface Slide {
@@ -230,19 +260,71 @@ function loadSpreadsheetFromWorksheet(ws: any) {
     }
     columns.value = newCols;
 
+    // 1. Ekstraksi Merges dari Excel
+    mergeMap.value = {};
+    if (ws['!merges'] && Array.isArray(ws['!merges'])) {
+        for (const m of ws['!merges']) {
+            const startAddr = XLSX.utils.encode_cell(m.s);
+            const rowspan = m.e.r - m.s.r + 1;
+            const colspan = m.e.c - m.s.c + 1;
+            mergeMap.value[startAddr] = {
+                rowspan,
+                colspan,
+                hidden: false,
+            };
+            for (let R = m.s.r; R <= m.e.r; R++) {
+                for (let C = m.s.c; C <= m.e.c; C++) {
+                    if (R === m.s.r && C === m.s.c) continue;
+                    const otherAddr = XLSX.utils.encode_cell({ r: R, c: C });
+                    mergeMap.value[otherAddr] = {
+                        rowspan: 1,
+                        colspan: 1,
+                        hidden: true,
+                    };
+                }
+            }
+        }
+    }
+
+    // 2. Baca seluruh sel fisik Excel
     for (let R = range.s.r; R <= range.e.r; ++R) {
+        const rowNum = R + 1;
         for (let C = range.s.c; C <= range.e.c; ++C) {
             const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
             const cell = ws[cellAddress];
             if (cell && (cell.v !== undefined || cell.w !== undefined || cell.f !== undefined)) {
                 const displayVal = cell.w !== undefined ? String(cell.w) : String(cell.v ?? '');
+                const isNumber = cell.t === 'n' || (!isNaN(Number(displayVal)) && displayVal.trim() !== '');
+                // Deteksi baris header tabel (misal baris dengan huruf kapital tebal)
+                const isHeader = (rowNum >= 6 && rowNum <= 10 && /^[A-Z0-9\s\/\-_()]+$/.test(displayVal.trim()) && displayVal.trim().length > 1);
                 sheetGrid.value[cellAddress] = {
                     value: cell.f ? '=' + cell.f : displayVal,
                     computed: displayVal,
+                    align: isHeader ? 'center' : (isNumber ? 'right' : 'left'),
+                    bold: isHeader || !!cell.s?.bold,
+                    bg: isHeader ? '#f8fafc' : undefined,
+                    border: 'all',
                 };
             }
         }
     }
+
+    // 3. Ekstraksi Lebar Kolom (!cols) atau hitung otomatis
+    colWidths.value = {};
+    if (ws['!cols'] && Array.isArray(ws['!cols'])) {
+        for (let C = 0; C < columns.value.length; C++) {
+            const colLetter = columns.value[C];
+            const cObj = ws['!cols'][C];
+            if (cObj) {
+                const w = cObj.wpx || (cObj.wch ? Math.round(cObj.wch * 9.5) : null);
+                if (w) {
+                    colWidths.value[colLetter] = Math.max(70, Math.min(400, w));
+                }
+            }
+        }
+    }
+    autoFitAllColumns();
+
     evaluateAllFormulas();
     selectCell('A1');
 }
@@ -295,17 +377,32 @@ function loadSpreadsheetDraft(draft: any) {
             const rowNum = rIdx + 1;
             Object.keys(row).forEach((colLetter) => {
                 const cellRef = `${colLetter}${rowNum}`;
-                const val = String(row[colLetter] ?? '');
-                if (val !== '') {
-                    sheetGrid.value[cellRef] = { value: val };
+                const cellData = row[colLetter];
+                if (typeof cellData === 'object' && cellData !== null) {
+                    sheetGrid.value[cellRef] = { ...cellData };
+                } else {
+                    const val = String(cellData ?? '');
+                    if (val !== '') {
+                        sheetGrid.value[cellRef] = { value: val };
+                    }
                 }
             });
         });
         rowCount.value = Math.max(25, draft.rows.length + 10);
+        if (draft.merges) {
+            mergeMap.value = draft.merges;
+        }
+        if (draft.colWidths) {
+            colWidths.value = draft.colWidths;
+        } else {
+            autoFitAllColumns();
+        }
     } else {
-        // Clean blank grid
         rowCount.value = 25;
         columns.value = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+        mergeMap.value = {};
+        colWidths.value = {};
+        autoFitAllColumns();
     }
     evaluateAllFormulas();
     selectCell('A1');
@@ -352,12 +449,16 @@ function getDraftPayload() {
         for (let r = 1; r <= rowCount.value; r++) {
             const rowObj: any = {};
             for (const col of columns.value) {
-                const val = sheetGrid.value[`${col}${r}`]?.value || '';
-                rowObj[col] = val;
+                const cell = sheetGrid.value[`${col}${r}`];
+                rowObj[col] = cell ? { ...cell } : '';
             }
             rows.push(rowObj);
         }
-        return { rows };
+        return {
+            rows,
+            merges: mergeMap.value,
+            colWidths: colWidths.value,
+        };
     } else if (docType.value === 'presentation') {
         return { slides: slides.value };
     } else {
@@ -394,7 +495,8 @@ async function commitSave() {
                     const rowArr: any[] = [];
                     let hasRowData = false;
                     for (const col of columns.value) {
-                        const val = sheetGrid.value[`${col}${r}`]?.value || '';
+                        const cell = sheetGrid.value[`${col}${r}`];
+                        const val = cell?.value || '';
                         if (val) hasRowData = true;
                         rowArr.push(val);
                     }
@@ -403,6 +505,39 @@ async function commitSave() {
                     }
                 }
                 const newWs = XLSX.utils.aoa_to_sheet(wsData);
+
+                // Reattach merges to newWs
+                const mergesArray: any[] = [];
+                for (const startAddr of Object.keys(mergeMap.value)) {
+                    const m = mergeMap.value[startAddr];
+                    if (!m.hidden && (m.colspan > 1 || m.rowspan > 1)) {
+                        const start = XLSX.utils.decode_cell(startAddr);
+                        mergesArray.push({
+                            s: start,
+                            e: {
+                                r: start.r + m.rowspan - 1,
+                                c: start.c + m.colspan - 1,
+                            }
+                        });
+                    }
+                }
+                if (mergesArray.length > 0) {
+                    newWs['!merges'] = mergesArray;
+                }
+
+                // Reattach column widths to newWs
+                const colsArray: any[] = [];
+                for (let c = 0; c < columns.value.length; c++) {
+                    const colLetter = columns.value[c];
+                    const w = colWidths.value[colLetter];
+                    if (w) {
+                        colsArray.push({ wpx: w });
+                    }
+                }
+                if (colsArray.length > 0) {
+                    newWs['!cols'] = colsArray;
+                }
+
                 const targetSheet = currentSheetName.value || 'Sheet1';
                 wb.Sheets[targetSheet] = newWs;
                 if (!wb.SheetNames.includes(targetSheet)) {
@@ -431,6 +566,204 @@ async function commitSave() {
     } finally {
         isSaving.value = false;
     }
+}
+
+// Formatting and Auto-fit helpers
+function autoFitAllColumns() {
+    for (const col of columns.value) {
+        let maxLen = col.length;
+        for (let r = 1; r <= rowCount.value; r++) {
+            const ref = `${col}${r}`;
+            if (mergeMap.value[ref]?.colspan && mergeMap.value[ref].colspan > 1) continue;
+            if (mergeMap.value[ref]?.hidden) continue;
+            const val = sheetGrid.value[ref]?.computed || sheetGrid.value[ref]?.value || '';
+            if (val.length > maxLen) {
+                maxLen = val.length;
+            }
+        }
+        colWidths.value[col] = Math.max(75, Math.min(380, Math.round(maxLen * 9.5 + 24)));
+    }
+}
+
+function toggleCellBold() {
+    if (!sheetGrid.value[selectedCell.value]) sheetGrid.value[selectedCell.value] = { value: '' };
+    sheetGrid.value[selectedCell.value].bold = !sheetGrid.value[selectedCell.value].bold;
+    triggerAutosave();
+}
+
+function toggleCellItalic() {
+    if (!sheetGrid.value[selectedCell.value]) sheetGrid.value[selectedCell.value] = { value: '' };
+    sheetGrid.value[selectedCell.value].italic = !sheetGrid.value[selectedCell.value].italic;
+    triggerAutosave();
+}
+
+function toggleCellUnderline() {
+    if (!sheetGrid.value[selectedCell.value]) sheetGrid.value[selectedCell.value] = { value: '' };
+    sheetGrid.value[selectedCell.value].underline = !sheetGrid.value[selectedCell.value].underline;
+    triggerAutosave();
+}
+
+function toggleCellStrikethrough() {
+    if (!sheetGrid.value[selectedCell.value]) sheetGrid.value[selectedCell.value] = { value: '' };
+    sheetGrid.value[selectedCell.value].strikethrough = !sheetGrid.value[selectedCell.value].strikethrough;
+    triggerAutosave();
+}
+
+function setCellFontFamily(font: string) {
+    if (!sheetGrid.value[selectedCell.value]) sheetGrid.value[selectedCell.value] = { value: '' };
+    sheetGrid.value[selectedCell.value].fontFamily = font;
+    triggerAutosave();
+}
+
+function setCellFontSize(size: number) {
+    if (!sheetGrid.value[selectedCell.value]) sheetGrid.value[selectedCell.value] = { value: '' };
+    sheetGrid.value[selectedCell.value].fontSize = size;
+    triggerAutosave();
+}
+
+function setCellAlign(align: 'left' | 'center' | 'right') {
+    if (!sheetGrid.value[selectedCell.value]) sheetGrid.value[selectedCell.value] = { value: '' };
+    sheetGrid.value[selectedCell.value].align = align;
+    triggerAutosave();
+}
+
+function setCellTextColor(color: string) {
+    if (!sheetGrid.value[selectedCell.value]) sheetGrid.value[selectedCell.value] = { value: '' };
+    sheetGrid.value[selectedCell.value].color = color;
+    triggerAutosave();
+}
+
+function setCellBgColor(bg: string) {
+    if (!sheetGrid.value[selectedCell.value]) sheetGrid.value[selectedCell.value] = { value: '' };
+    sheetGrid.value[selectedCell.value].bg = bg;
+    triggerAutosave();
+}
+
+function applyAllBordersToSheet() {
+    showAllTableBorders.value = !showAllTableBorders.value;
+    for (const key of Object.keys(sheetGrid.value)) {
+        sheetGrid.value[key].border = showAllTableBorders.value ? 'all' : 'none';
+    }
+    triggerAutosave();
+}
+
+function toggleCellWrap() {
+    if (!sheetGrid.value[selectedCell.value]) sheetGrid.value[selectedCell.value] = { value: '' };
+    sheetGrid.value[selectedCell.value].wrap = !sheetGrid.value[selectedCell.value].wrap;
+    triggerAutosave();
+}
+
+function setCellFormat(fmt: 'general' | 'number' | 'currency' | 'percent') {
+    if (!sheetGrid.value[selectedCell.value]) sheetGrid.value[selectedCell.value] = { value: '' };
+    sheetGrid.value[selectedCell.value].format = fmt;
+    evaluateAllFormulas();
+    triggerAutosave();
+}
+
+function toggleMergeCell() {
+    const ref = selectedCell.value;
+    if (mergeMap.value[ref]) {
+        delete mergeMap.value[ref];
+    } else {
+        const colLetter = ref.replace(/[0-9]/g, '');
+        const rowNum = parseInt(ref.replace(/[^0-9]/g, ''));
+        const colIdx = columns.value.indexOf(colLetter);
+        if (colIdx < columns.value.length - 1) {
+            const nextCol = columns.value[colIdx + 1];
+            mergeMap.value[ref] = { rowspan: 1, colspan: 2, hidden: false };
+            mergeMap.value[`${nextCol}${rowNum}`] = { rowspan: 1, colspan: 1, hidden: true };
+        }
+    }
+    triggerAutosave();
+}
+
+function deleteRow() {
+    if (rowCount.value > 1) {
+        const lastRow = rowCount.value;
+        for (const col of columns.value) {
+            delete sheetGrid.value[`${col}${lastRow}`];
+            delete mergeMap.value[`${col}${lastRow}`];
+        }
+        rowCount.value--;
+        triggerAutosave();
+    }
+}
+
+function deleteColumn() {
+    if (columns.value.length > 1) {
+        const lastCol = columns.value.pop();
+        if (lastCol) {
+            for (let r = 1; r <= rowCount.value; r++) {
+                delete sheetGrid.value[`${lastCol}${r}`];
+                delete mergeMap.value[`${lastCol}${r}`];
+            }
+            delete colWidths.value[lastCol];
+        }
+        triggerAutosave();
+    }
+}
+
+function getFormattedDisplayValue(ref: string): string {
+    const cell = sheetGrid.value[ref];
+    if (!cell) return '';
+    const raw = cell.computed !== undefined ? cell.computed : (cell.value || '');
+    if (!cell.format || cell.format === 'general' || raw === '') return raw;
+
+    const num = parseFloat(raw);
+    if (isNaN(num)) return raw;
+
+    if (cell.format === 'currency') {
+        return 'Rp ' + num.toLocaleString('id-ID');
+    }
+    if (cell.format === 'percent') {
+        return (num * (raw.includes('%') ? 1 : 100)).toFixed(1) + '%';
+    }
+    if (cell.format === 'number') {
+        return num.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    return raw;
+}
+
+function getCellBorderClass(ref: string): string {
+    const cell = sheetGrid.value[ref];
+    if (cell?.border === 'none' && !showAllTableBorders.value) {
+        return 'border border-slate-200/40 dark:border-slate-800/40';
+    }
+    if (cell?.border === 'box') {
+        return 'border-2 border-slate-700 dark:border-slate-300';
+    }
+    if (cell?.border === 'bottom') {
+        return 'border-b-2 border-b-slate-700 dark:border-b-slate-300 border-l border-r border-t border-slate-200 dark:border-slate-700';
+    }
+    if (showAllTableBorders.value || cell?.border === 'all') {
+        return 'border border-slate-400/80 dark:border-slate-600';
+    }
+    return 'border border-slate-300 dark:border-slate-700';
+}
+
+function getCellStyle(ref: string): Record<string, string> {
+    const cell = sheetGrid.value[ref];
+    const style: Record<string, string> = {};
+    if (cell?.bg) {
+        style.backgroundColor = cell.bg;
+    }
+    return style;
+}
+
+function getCellAlignClass(ref: string): string {
+    const cell = sheetGrid.value[ref];
+    if (cell?.align === 'center') return 'text-center';
+    if (cell?.align === 'right') return 'text-right';
+    return 'text-left';
+}
+
+function insertDocTable() {
+    const tableHtml = '<table style="width:100%; border-collapse:collapse; margin:1rem 0; border: 1px solid #94a3b8;"><tr style="background:#f1f5f9;"><th style="border:1px solid #94a3b8; padding:8px;">Kolom 1</th><th style="border:1px solid #94a3b8; padding:8px;">Kolom 2</th><th style="border:1px solid #94a3b8; padding:8px;">Kolom 3</th></tr><tr><td style="border:1px solid #94a3b8; padding:8px;">Data 1</td><td style="border:1px solid #94a3b8; padding:8px;">Data 2</td><td style="border:1px solid #94a3b8; padding:8px;">Data 3</td></tr><tr><td style="border:1px solid #94a3b8; padding:8px;">Data 4</td><td style="border:1px solid #94a3b8; padding:8px;">Data 5</td><td style="border:1px solid #94a3b8; padding:8px;">Data 6</td></tr></table><p><br/></p>';
+    document.execCommand('insertHTML', false, tableHtml);
+    if (docEditorRef.value) {
+        docHtml.value = docEditorRef.value.innerHTML;
+    }
+    triggerAutosave();
 }
 
 // Cleanup on Close
@@ -845,52 +1178,106 @@ function execDocCmd(command: string, value: string | undefined = undefined) {
             <div v-else class="flex-1 flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-950">
                 <!-- ================= 1. WORD / DOCX EDITOR ================= -->
                 <div v-if="docType === 'document'" class="flex-1 flex flex-col overflow-hidden">
-                    <!-- Rich Text Toolbar -->
-                    <div class="px-4 py-2 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center gap-1.5 flex-wrap shrink-0">
-                        <button @click="execDocCmd('bold')" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs" title="Tebal (Ctrl+B)">
+                    <!-- Rich Text Ribbon Toolbar -->
+                    <div class="px-4 py-2 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center gap-1.5 flex-wrap shrink-0 text-xs">
+                        <!-- Font Family -->
+                        <select
+                            @change="execDocCmd('fontName', ($event.target as HTMLSelectElement).value)"
+                            class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-medium focus:outline-hidden"
+                            title="Jenis Huruf"
+                        >
+                            <option value="Calibri">Calibri</option>
+                            <option value="Arial">Arial</option>
+                            <option value="Times New Roman">Times New Roman</option>
+                            <option value="Segoe UI">Segoe UI</option>
+                            <option value="Courier New">Courier New</option>
+                            <option value="Georgia">Georgia</option>
+                        </select>
+
+                        <!-- Font Size -->
+                        <select
+                            @change="execDocCmd('fontSize', ($event.target as HTMLSelectElement).value)"
+                            class="w-14 px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-medium focus:outline-hidden"
+                            title="Ukuran Huruf"
+                        >
+                            <option value="1">8 pt</option>
+                            <option value="2">10 pt</option>
+                            <option value="3" selected>12 pt</option>
+                            <option value="4">14 pt</option>
+                            <option value="5">18 pt</option>
+                            <option value="6">24 pt</option>
+                            <option value="7">36 pt</option>
+                        </select>
+
+                        <div class="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1"></div>
+
+                        <!-- Formatting -->
+                        <button @click="execDocCmd('bold')" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold" title="Tebal (Ctrl+B)">
                             <Bold class="w-4 h-4" />
                         </button>
-                        <button @click="execDocCmd('italic')" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs" title="Miring (Ctrl+I)">
+                        <button @click="execDocCmd('italic')" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300" title="Miring (Ctrl+I)">
                             <Italic class="w-4 h-4" />
                         </button>
-                        <button @click="execDocCmd('underline')" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs" title="Garis Bawah (Ctrl+U)">
+                        <button @click="execDocCmd('underline')" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300" title="Garis Bawah (Ctrl+U)">
                             <Underline class="w-4 h-4" />
                         </button>
+                        <button @click="execDocCmd('strikeThrough')" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300" title="Coret Teks">
+                            <Strikethrough class="w-4 h-4" />
+                        </button>
 
-                        <div class="w-px h-5 bg-slate-200 dark:bg-slate-800 mx-1"></div>
+                        <div class="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1"></div>
 
-                        <button @click="execDocCmd('formatBlock', '<h1>')" class="px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold">
+                        <!-- Colors -->
+                        <label class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1 text-slate-700 dark:text-slate-300" title="Warna Teks">
+                            <span class="font-bold underline decoration-red-500">A</span>
+                            <input type="color" @input="execDocCmd('foreColor', ($event.target as HTMLInputElement).value)" class="sr-only" />
+                        </label>
+                        <label class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1 text-slate-700 dark:text-slate-300" title="Warna Sorotan (Highlight)">
+                            <PaintBucket class="w-4 h-4 text-amber-500" />
+                            <input type="color" @input="execDocCmd('hiliteColor', ($event.target as HTMLInputElement).value)" class="sr-only" />
+                        </label>
+
+                        <div class="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1"></div>
+
+                        <!-- Headings -->
+                        <button @click="execDocCmd('formatBlock', '<h1>')" class="px-2 py-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold">
                             H1
                         </button>
-                        <button @click="execDocCmd('formatBlock', '<h2>')" class="px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold">
+                        <button @click="execDocCmd('formatBlock', '<h2>')" class="px-2 py-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold">
                             H2
                         </button>
-                        <button @click="execDocCmd('formatBlock', '<p>')" class="px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs">
+                        <button @click="execDocCmd('formatBlock', '<p>')" class="px-2 py-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300">
                             Normal
                         </button>
 
-                        <div class="w-px h-5 bg-slate-200 dark:bg-slate-800 mx-1"></div>
+                        <div class="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1"></div>
 
-                        <button @click="execDocCmd('justifyLeft')" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300">
+                        <!-- Alignment -->
+                        <button @click="execDocCmd('justifyLeft')" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300" title="Rata Kiri">
                             <AlignLeft class="w-4 h-4" />
                         </button>
-                        <button @click="execDocCmd('justifyCenter')" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300">
+                        <button @click="execDocCmd('justifyCenter')" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300" title="Rata Tengah">
                             <AlignCenter class="w-4 h-4" />
                         </button>
-                        <button @click="execDocCmd('justifyRight')" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300">
+                        <button @click="execDocCmd('justifyRight')" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300" title="Rata Kanan">
                             <AlignRight class="w-4 h-4" />
                         </button>
-                        <button @click="execDocCmd('justifyFull')" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300">
+                        <button @click="execDocCmd('justifyFull')" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300" title="Rata Kiri Kanan">
                             <AlignJustify class="w-4 h-4" />
                         </button>
 
-                        <div class="w-px h-5 bg-slate-200 dark:bg-slate-800 mx-1"></div>
+                        <div class="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1"></div>
 
-                        <button @click="execDocCmd('insertUnorderedList')" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300">
+                        <!-- Lists & Table -->
+                        <button @click="execDocCmd('insertUnorderedList')" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300" title="Daftar Poin">
                             <List class="w-4 h-4" />
                         </button>
-                        <button @click="execDocCmd('insertOrderedList')" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300">
+                        <button @click="execDocCmd('insertOrderedList')" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300" title="Daftar Nomor">
                             <ListOrdered class="w-4 h-4" />
+                        </button>
+                        <button @click="insertDocTable" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center gap-1 font-medium" title="Sisipkan Tabel Baru">
+                            <TableProperties class="w-3.5 h-3.5 text-blue-500" />
+                            <span>Tabel</span>
                         </button>
                     </div>
 
@@ -913,7 +1300,237 @@ function execDocCmd(command: string, value: string | undefined = undefined) {
 
                 <!-- ================= 2. EXCEL / SPREADSHEET EDITOR ================= -->
                 <div v-else-if="docType === 'spreadsheet'" class="flex-1 flex flex-col overflow-hidden">
-                    <!-- Formula & Grid Bar -->
+                    <!-- Microsoft Excel Ribbon Toolbar -->
+                    <div class="px-4 py-2 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2 flex-wrap text-xs shrink-0 select-none">
+                        <!-- Font Family -->
+                        <select
+                            :value="activeCellData.fontFamily || 'Calibri'"
+                            @change="setCellFontFamily(($event.target as HTMLSelectElement).value)"
+                            class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-medium focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                            title="Jenis Huruf (Font)"
+                        >
+                            <option value="Calibri">Calibri</option>
+                            <option value="Arial">Arial</option>
+                            <option value="Times New Roman">Times New Roman</option>
+                            <option value="Segoe UI">Segoe UI</option>
+                            <option value="Courier New">Courier New</option>
+                            <option value="Tahoma">Tahoma</option>
+                            <option value="Verdana">Verdana</option>
+                        </select>
+
+                        <!-- Font Size -->
+                        <select
+                            :value="activeCellData.fontSize || 11"
+                            @change="setCellFontSize(Number(($event.target as HTMLSelectElement).value))"
+                            class="w-14 px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-medium focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                            title="Ukuran Huruf (Font Size)"
+                        >
+                            <option :value="9">9 pt</option>
+                            <option :value="10">10 pt</option>
+                            <option :value="11">11 pt</option>
+                            <option :value="12">12 pt</option>
+                            <option :value="14">14 pt</option>
+                            <option :value="16">16 pt</option>
+                            <option :value="18">18 pt</option>
+                            <option :value="20">20 pt</option>
+                            <option :value="24">24 pt</option>
+                        </select>
+
+                        <div class="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5"></div>
+
+                        <!-- Bold, Italic, Underline, Strikethrough -->
+                        <div class="flex items-center gap-0.5">
+                            <button
+                                @click="toggleCellBold"
+                                class="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                                :class="activeCellData.bold ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-400 font-black' : 'text-slate-700 dark:text-slate-300 font-bold'"
+                                title="Tebal (Bold)"
+                            >
+                                <Bold class="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                                @click="toggleCellItalic"
+                                class="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                                :class="activeCellData.italic ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-400 font-bold' : 'text-slate-700 dark:text-slate-300'"
+                                title="Miring (Italic)"
+                            >
+                                <Italic class="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                                @click="toggleCellUnderline"
+                                class="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                                :class="activeCellData.underline ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-400 font-bold' : 'text-slate-700 dark:text-slate-300'"
+                                title="Garis Bawah (Underline)"
+                            >
+                                <Underline class="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                                @click="toggleCellStrikethrough"
+                                class="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                                :class="activeCellData.strikethrough ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-400 font-bold' : 'text-slate-700 dark:text-slate-300'"
+                                title="Coret (Strikethrough)"
+                            >
+                                <Strikethrough class="w-3.5 h-3.5" />
+                            </button>
+                        </div>
+
+                        <div class="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5"></div>
+
+                        <!-- Text Color & Fill Color -->
+                        <div class="flex items-center gap-1">
+                            <label class="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1" title="Warna Teks">
+                                <span class="font-bold text-xs underline decoration-2" :style="{ textDecorationColor: activeCellData.color || '#000000' }">A</span>
+                                <input
+                                    type="color"
+                                    :value="activeCellData.color || '#000000'"
+                                    @input="setCellTextColor(($event.target as HTMLInputElement).value)"
+                                    class="sr-only"
+                                />
+                            </label>
+
+                            <label class="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1" title="Warna Latar Sel (Fill)">
+                                <PaintBucket class="w-3.5 h-3.5" :style="{ color: activeCellData.bg || '#107c41' }" />
+                                <input
+                                    type="color"
+                                    :value="activeCellData.bg || '#ffffff'"
+                                    @input="setCellBgColor(($event.target as HTMLInputElement).value)"
+                                    class="sr-only"
+                                />
+                            </label>
+                        </div>
+
+                        <div class="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5"></div>
+
+                        <!-- Borders Toggle -->
+                        <div class="flex items-center gap-1">
+                            <button
+                                @click="applyAllBordersToSheet"
+                                class="px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs flex items-center gap-1 text-slate-700 dark:text-slate-300 font-medium"
+                                :class="showAllTableBorders ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-500 text-emerald-600 dark:text-emerald-400 font-bold' : ''"
+                                title="Tampilkan / Sembunyikan Garis Tabel (All Borders)"
+                            >
+                                <TableProperties class="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Garis Tabel</span>
+                            </button>
+                        </div>
+
+                        <div class="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5"></div>
+
+                        <!-- Alignments -->
+                        <div class="flex items-center gap-0.5">
+                            <button
+                                @click="setCellAlign('left')"
+                                class="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                                :class="activeCellData.align === 'left' ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-300'"
+                                title="Rata Kiri"
+                            >
+                                <AlignLeft class="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                                @click="setCellAlign('center')"
+                                class="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                                :class="activeCellData.align === 'center' ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-300'"
+                                title="Rata Tengah"
+                            >
+                                <AlignCenter class="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                                @click="setCellAlign('right')"
+                                class="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                                :class="activeCellData.align === 'right' ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-300'"
+                                title="Rata Kanan"
+                            >
+                                <AlignRight class="w-3.5 h-3.5" />
+                            </button>
+                        </div>
+
+                        <div class="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5"></div>
+
+                        <!-- Merge & Wrap -->
+                        <div class="flex items-center gap-1">
+                            <button
+                                @click="toggleMergeCell"
+                                class="px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs flex items-center gap-1 text-slate-700 dark:text-slate-300 font-medium"
+                                :class="mergeMap[selectedCell] ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-400 border-emerald-500' : ''"
+                                title="Gabung Sel dengan Kolom Kanan (Merge & Center)"
+                            >
+                                <Merge class="w-3.5 h-3.5" />
+                                <span>Gabung Sel</span>
+                            </button>
+
+                            <button
+                                @click="toggleCellWrap"
+                                class="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                                :class="activeCellData.wrap ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-300'"
+                                title="Bungkus Teks (Wrap Text)"
+                            >
+                                <WrapText class="w-3.5 h-3.5" />
+                            </button>
+                        </div>
+
+                        <div class="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5"></div>
+
+                        <!-- Number Format -->
+                        <select
+                            :value="activeCellData.format || 'general'"
+                            @change="setCellFormat(($event.target as HTMLSelectElement).value as any)"
+                            class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-medium focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                            title="Format Nilai / Angka"
+                        >
+                            <option value="general">Umum (Teks)</option>
+                            <option value="number">Angka (1.000,00)</option>
+                            <option value="currency">Mata Uang (Rp)</option>
+                            <option value="percent">Persentase (%)</option>
+                        </select>
+
+                        <div class="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5"></div>
+
+                        <!-- Auto-Fit Columns -->
+                        <button
+                            @click="autoFitAllColumns"
+                            class="px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs flex items-center gap-1 text-slate-700 dark:text-slate-300 font-medium"
+                            title="Sesuaikan lebar kolom otomatis agar semua teks tampak utuh dan rapi"
+                        >
+                            <Sparkles class="w-3.5 h-3.5 text-amber-500" />
+                            <span>Ratakan Kolom</span>
+                        </button>
+
+                        <div class="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5"></div>
+
+                        <!-- Add/Remove Row & Column -->
+                        <div class="flex items-center gap-1">
+                            <button
+                                @click="addRow"
+                                class="px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                title="Tambah 1 Baris di Bawah"
+                            >
+                                + Baris
+                            </button>
+                            <button
+                                @click="deleteRow"
+                                class="px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                title="Hapus Baris Terakhir"
+                            >
+                                - Baris
+                            </button>
+                            <button
+                                @click="addColumn"
+                                class="px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                title="Tambah 1 Kolom di Kanan"
+                            >
+                                + Kolom
+                            </button>
+                            <button
+                                @click="deleteColumn"
+                                class="px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                title="Hapus Kolom Terakhir"
+                            >
+                                - Kolom
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Formula Bar -->
                     <div class="px-4 py-2 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center gap-3 shrink-0">
                         <!-- Active Cell Name -->
                         <div class="px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-mono font-bold text-slate-700 dark:text-slate-200 min-w-[50px] text-center border border-slate-200 dark:border-slate-700">
@@ -928,66 +1545,78 @@ function execDocCmd(command: string, value: string | undefined = undefined) {
                             @input="onFormulaBarChange"
                             :disabled="mode === 'view'"
                             type="text"
-                            placeholder="Ketik nilai atau rumus (misal: =SUM(B3:B4))"
-                            class="flex-1 px-3 py-1 rounded-lg text-xs font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-hidden focus:ring-1 focus:ring-blue-500 text-slate-800 dark:text-slate-100"
+                            placeholder="Ketik nilai atau rumus (misal: =SUM(B3:B4) atau =AVERAGE(A1:A5))"
+                            class="flex-1 px-3 py-1 rounded-lg text-xs font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 text-slate-800 dark:text-slate-100"
                         />
-
-                        <!-- Add Row / Column Buttons -->
-                        <div class="flex items-center gap-1">
-                            <button
-                                @click="addRow"
-                                class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                            >
-                                + Baris
-                            </button>
-                            <button
-                                @click="addColumn"
-                                class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                            >
-                                + Kolom
-                            </button>
-                        </div>
                     </div>
 
                     <!-- Spreadsheet Table Grid -->
                     <div class="flex-1 overflow-auto bg-white dark:bg-slate-900">
-                        <table class="w-full border-collapse text-xs font-sans select-none">
+                        <table class="border-collapse text-xs font-sans select-none table-fixed">
                             <thead>
-                                <tr class="bg-slate-100 dark:bg-slate-800 sticky top-0 z-10">
-                                    <th class="w-10 border border-slate-200 dark:border-slate-700 px-2 py-1.5 text-center text-slate-500 font-bold bg-slate-200/60 dark:bg-slate-800"></th>
+                                <tr class="bg-slate-100 dark:bg-slate-800 sticky top-0 z-30">
+                                    <th class="w-12 min-w-12 border border-slate-300 dark:border-slate-700 px-2 py-1.5 text-center text-slate-500 font-bold bg-slate-200/80 dark:bg-slate-800 sticky left-0 z-40"></th>
                                     <th
                                         v-for="col in columns"
                                         :key="col"
-                                        class="min-w-[110px] border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-center text-slate-700 dark:text-slate-300 font-bold"
+                                        :style="{
+                                            width: `${colWidths[col] || 120}px`,
+                                            minWidth: `${colWidths[col] || 120}px`
+                                        }"
+                                        class="border border-slate-300 dark:border-slate-700 px-2 py-1.5 text-center text-slate-700 dark:text-slate-200 font-bold bg-slate-100 dark:bg-slate-800"
                                     >
                                         {{ col }}
                                     </th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="r in rowCount" :key="r" class="hover:bg-blue-50/20">
+                                <tr v-for="r in rowCount" :key="r" class="hover:bg-emerald-50/10">
                                     <!-- Row Number Header -->
-                                    <td class="border border-slate-200 dark:border-slate-700 px-2 py-1 text-center text-slate-400 font-bold bg-slate-100 dark:bg-slate-800 select-none">
+                                    <td class="border border-slate-300 dark:border-slate-700 px-2 py-1 text-center text-slate-500 font-bold bg-slate-100 dark:bg-slate-800 select-none sticky left-0 z-20">
                                         {{ r }}
                                     </td>
                                     <!-- Grid Cells -->
-                                    <td
-                                        v-for="col in columns"
-                                        :key="`${col}${r}`"
-                                        @click="selectCell(`${col}${r}`)"
-                                        class="border border-slate-200 dark:border-slate-700 p-0 relative"
-                                        :class="selectedCell === `${col}${r}` ? 'ring-2 ring-blue-500 z-10' : ''"
-                                    >
-                                        <input
-                                            :id="`cell-${col}${r}`"
-                                            :value="selectedCell === `${col}${r}` ? (sheetGrid[`${col}${r}`]?.value || '') : (sheetGrid[`${col}${r}`]?.computed || sheetGrid[`${col}${r}`]?.value || '')"
-                                            @input="e => onCellInput(`${col}${r}`, (e.target as HTMLInputElement).value)"
-                                            @keydown="onCellKeydown($event, col, r)"
-                                            :disabled="mode === 'view'"
-                                            type="text"
-                                            class="w-full h-full px-2 py-1.5 text-xs bg-transparent focus:outline-hidden text-slate-800 dark:text-slate-100"
-                                        />
-                                    </td>
+                                    <template v-for="col in columns" :key="`${col}${r}`">
+                                        <td
+                                            v-if="!mergeMap[`${col}${r}`]?.hidden"
+                                            :rowspan="mergeMap[`${col}${r}`]?.rowspan || 1"
+                                            :colspan="mergeMap[`${col}${r}`]?.colspan || 1"
+                                            @click="selectCell(`${col}${r}`)"
+                                            class="p-0 relative transition-colors"
+                                            :class="[
+                                                selectedCell === `${col}${r}` ? 'ring-2 ring-emerald-600 dark:ring-emerald-400 z-20' : '',
+                                                getCellBorderClass(`${col}${r}`)
+                                            ]"
+                                            :style="{
+                                                ...getCellStyle(`${col}${r}`),
+                                                width: (!mergeMap[`${col}${r}`]?.colspan || mergeMap[`${col}${r}`].colspan === 1) ? `${colWidths[col] || 120}px` : undefined,
+                                                minWidth: (!mergeMap[`${col}${r}`]?.colspan || mergeMap[`${col}${r}`].colspan === 1) ? `${colWidths[col] || 120}px` : undefined,
+                                            }"
+                                        >
+                                            <input
+                                                :id="`cell-${col}${r}`"
+                                                :value="selectedCell === `${col}${r}` ? (sheetGrid[`${col}${r}`]?.value || '') : getFormattedDisplayValue(`${col}${r}`)"
+                                                @input="e => onCellInput(`${col}${r}`, (e.target as HTMLInputElement).value)"
+                                                @keydown="onCellKeydown($event, col, r)"
+                                                :disabled="mode === 'view'"
+                                                type="text"
+                                                class="w-full h-full px-2.5 py-1.5 text-xs bg-transparent focus:outline-hidden"
+                                                :class="[
+                                                    sheetGrid[`${col}${r}`]?.bold ? 'font-bold' : '',
+                                                    sheetGrid[`${col}${r}`]?.italic ? 'italic' : '',
+                                                    sheetGrid[`${col}${r}`]?.underline ? 'underline' : '',
+                                                    sheetGrid[`${col}${r}`]?.strikethrough ? 'line-through' : '',
+                                                    sheetGrid[`${col}${r}`]?.wrap ? 'whitespace-normal' : 'truncate',
+                                                    getCellAlignClass(`${col}${r}`)
+                                                ]"
+                                                :style="{
+                                                    color: sheetGrid[`${col}${r}`]?.color || 'inherit',
+                                                    fontFamily: sheetGrid[`${col}${r}`]?.fontFamily || 'inherit',
+                                                    fontSize: sheetGrid[`${col}${r}`]?.fontSize ? `${sheetGrid[`${col}${r}`].fontSize}px` : 'inherit',
+                                                }"
+                                            />
+                                        </td>
+                                    </template>
                                 </tr>
                             </tbody>
                         </table>
