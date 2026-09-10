@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import {
     X,
     Save,
@@ -60,6 +60,7 @@ const isSlideshow = ref(false);
 // Document Content States
 // 1. DOCX
 const docHtml = ref('');
+const docEditorRef = ref<HTMLDivElement | null>(null);
 const wordCount = computed(() => {
     const text = docHtml.value.replace(/<[^>]*>/g, ' ').trim();
     return text ? text.split(/\s+/).length : 0;
@@ -135,14 +136,11 @@ async function initSession() {
         const draft = data.draft;
         if (docType.value === 'spreadsheet') {
             let loadedFromBinary = false;
-            try {
-                // Selalu coba baca file fisik Excel asli dari server (menggunakan SheetJS)
-                const binaryRes = await http.get(`/files/${props.file.uuid}/preview`, {
-                    responseType: 'arraybuffer',
-                });
-                if (binaryRes.data && binaryRes.data.byteLength > 0) {
-                    const workbook = XLSX.read(new Uint8Array(binaryRes.data), {
-                        type: 'array',
+            // 1. Coba baca langsung dari data.binary_base64 dari server
+            if (data.binary_base64 && typeof data.binary_base64 === 'string' && data.binary_base64.length > 0) {
+                try {
+                    const workbook = XLSX.read(data.binary_base64, {
+                        type: 'base64',
                         cellFormula: true,
                         cellText: true,
                     });
@@ -157,18 +155,48 @@ async function initSession() {
                             loadedFromBinary = true;
                         }
                     }
+                } catch (b64Err) {
+                    console.warn('Gagal membaca binary_base64 Excel, mencoba preview endpoint:', b64Err);
                 }
-            } catch (readErr) {
-                console.warn('Gagal membaca biner Excel asli, fallback ke draft:', readErr);
             }
 
+            // 2. Fallback baca preview endpoint
+            if (!loadedFromBinary) {
+                try {
+                    const binaryRes = await http.get(`/files/${props.file.uuid}/preview`, {
+                        responseType: 'arraybuffer',
+                    });
+                    if (binaryRes.data && binaryRes.data.byteLength > 0) {
+                        const workbook = XLSX.read(new Uint8Array(binaryRes.data), {
+                            type: 'array',
+                            cellFormula: true,
+                            cellText: true,
+                        });
+
+                        if (workbook && workbook.SheetNames && workbook.SheetNames.length > 0) {
+                            currentWorkbook = workbook;
+                            availableSheets.value = workbook.SheetNames;
+                            currentSheetName.value = workbook.SheetNames[0];
+                            const ws = workbook.Sheets[currentSheetName.value];
+                            if (ws) {
+                                loadSpreadsheetFromWorksheet(ws);
+                                loadedFromBinary = true;
+                            }
+                        }
+                    }
+                } catch (readErr) {
+                    console.warn('Gagal membaca biner preview Excel:', readErr);
+                }
+            }
+
+            // 3. Fallback ke draft rows jika file kosong / baru
             if (!loadedFromBinary) {
                 loadSpreadsheetDraft(draft);
             }
         } else if (docType.value === 'presentation') {
             loadPresentationDraft(draft);
         } else {
-            loadDocumentDraft(draft);
+            loadDocumentDraft(draft, data.html_content);
         }
 
         // Start 45s heartbeat to keep document lock alive
@@ -192,18 +220,17 @@ function loadSpreadsheetFromWorksheet(ws: any) {
 
     // Sesuaikan rowCount jika data baris banyak
     const totalRows = range.e.r + 1;
-    rowCount.value = Math.max(25, Math.min(totalRows + 10, 500));
+    rowCount.value = Math.max(25, Math.min(totalRows + 10, 1000));
 
-    // Sesuaikan columns (A, B, C, ... sampai max col)
+    // Sesuaikan columns (A, B, C, ... sampai max col) menggunakan SheetJS helper encode_col
     const totalCols = Math.max(range.e.c + 1, 8);
     const newCols: string[] = [];
-    for (let c = 0; c < Math.min(totalCols + 2, 26); c++) {
-        newCols.push(String.fromCharCode(65 + c));
+    for (let c = 0; c < Math.min(totalCols + 2, 50); c++) {
+        newCols.push(XLSX.utils.encode_col(c));
     }
     columns.value = newCols;
 
     for (let R = range.s.r; R <= range.e.r; ++R) {
-        const rowNum = R + 1;
         for (let C = range.s.c; C <= range.e.c; ++C) {
             const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
             const cell = ws[cellAddress];
@@ -231,55 +258,69 @@ function downloadOriginalFile() {
     window.open(`/api/v1/files/${props.file.uuid}/preview`, '_blank');
 }
 
-function loadDocumentDraft(draft: any) {
-    if (typeof draft === 'string') {
+function loadDocumentDraft(draft: any, htmlContent?: string) {
+    if (htmlContent && htmlContent.trim() !== '') {
+        docHtml.value = htmlContent;
+    } else if (draft?.html && draft.html.trim() !== '') {
+        docHtml.value = draft.html;
+    } else if (typeof draft === 'string' && draft.trim() !== '') {
         docHtml.value = draft;
-    } else if (draft?.paragraphs) {
+    } else if (draft?.paragraphs && Array.isArray(draft.paragraphs) && draft.paragraphs.length > 0) {
         docHtml.value = draft.paragraphs.map((p: any) => {
             const text = typeof p === 'string' ? p : p.text || '';
             const style = p.style === 'h1' ? 'font-size: 1.875rem; font-weight: bold; margin-bottom: 0.75rem;' : 'margin-bottom: 0.5rem;';
-            return `<p style="${style}">${text}</p>`;
+            return text ? `<p style="${style}">${text}</p>` : '<p><br/></p>';
         }).join('');
     } else {
-        docHtml.value = `<h1>${props.file?.original_name || 'Dokumen Baru'}</h1><p>Mulai ketik dokumen Anda di sini...</p>`;
+        docHtml.value = '<p><br/></p>';
     }
+
+    nextTick(() => {
+        if (docEditorRef.value) {
+            docEditorRef.value.innerHTML = docHtml.value;
+        }
+    });
+}
+
+function onDocInput(e: Event) {
+    const target = e.target as HTMLElement;
+    docHtml.value = target.innerHTML;
+    triggerAutosave();
 }
 
 function loadSpreadsheetDraft(draft: any) {
     sheetGrid.value = {};
-    if (draft?.rows) {
+    if (draft?.rows && Array.isArray(draft.rows) && draft.rows.length > 0) {
         draft.rows.forEach((row: any, rIdx: number) => {
             const rowNum = rIdx + 1;
             Object.keys(row).forEach((colLetter) => {
                 const cellRef = `${colLetter}${rowNum}`;
-                sheetGrid.value[cellRef] = { value: String(row[colLetter] ?? '') };
+                const val = String(row[colLetter] ?? '');
+                if (val !== '') {
+                    sheetGrid.value[cellRef] = { value: val };
+                }
             });
         });
+        rowCount.value = Math.max(25, draft.rows.length + 10);
     } else {
-        sheetGrid.value['A1'] = { value: props.file?.original_name || 'Tabel Data' };
-        sheetGrid.value['A2'] = { value: 'Item' };
-        sheetGrid.value['B2'] = { value: 'Jumlah' };
-        sheetGrid.value['A3'] = { value: 'Pendapatan' };
-        sheetGrid.value['B3'] = { value: '15000000' };
-        sheetGrid.value['A4'] = { value: 'Pengeluaran' };
-        sheetGrid.value['B4'] = { value: '8500000' };
-        sheetGrid.value['A5'] = { value: 'Total' };
-        sheetGrid.value['B5'] = { value: '=SUM(B3:B4)' };
+        // Clean blank grid
+        rowCount.value = 25;
+        columns.value = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
     }
     evaluateAllFormulas();
     selectCell('A1');
 }
 
 function loadPresentationDraft(draft: any) {
-    if (draft?.slides && Array.isArray(draft.slides)) {
+    if (draft?.slides && Array.isArray(draft.slides) && draft.slides.length > 0) {
         slides.value = draft.slides;
     } else {
         slides.value = [
             {
                 id: 1,
-                title: props.file?.original_name?.replace(/\.[^/.]+$/, '') || 'Slide Judul',
-                subtitle: 'Dibuat dengan MyStorage Online Suite',
-                notes: 'Catatan pembicara untuk presentasi.',
+                title: props.file?.original_name ? props.file.original_name.replace(/\.[^/.]+$/, '') : 'Judul Slide',
+                subtitle: '',
+                notes: '',
                 background: '#0f172a'
             }
         ];
@@ -367,7 +408,9 @@ async function commitSave() {
                 if (!wb.SheetNames.includes(targetSheet)) {
                     wb.SheetNames.push(targetSheet);
                 }
-                binaryBase64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
+                const ext = (props.file?.extension || '').toLowerCase();
+                const bookType = ext === 'csv' ? 'csv' : 'xlsx';
+                binaryBase64 = XLSX.write(wb, { type: 'base64', bookType: bookType as any });
             } catch (exportErr) {
                 console.warn('Gagal export XLSX base64:', exportErr);
             }
@@ -446,32 +489,117 @@ function evaluateAllFormulas() {
     }
 }
 
-function calculateFormula(formula: string): string {
-    const upper = formula.toUpperCase();
-    // =SUM(B3:B4)
-    const sumMatch = upper.match(/=SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)/);
-    if (sumMatch) {
-        const colStart = sumMatch[1];
-        const rowStart = parseInt(sumMatch[2]);
-        const rowEnd = parseInt(sumMatch[4]);
-        let total = 0;
-        for (let r = rowStart; r <= rowEnd; r++) {
-            const v = parseFloat(sheetGrid.value[`${colStart}${r}`]?.computed || sheetGrid.value[`${colStart}${r}`]?.value || '0');
-            if (!isNaN(v)) total += v;
+function parseRangeCells(rangeStr: string): string[] {
+    const cells: string[] = [];
+    const parts = rangeStr.split(',').map(s => s.trim());
+    for (const part of parts) {
+        if (part.includes(':')) {
+            try {
+                const range = XLSX.utils.decode_range(part);
+                for (let r = range.s.r; r <= range.e.r; r++) {
+                    for (let c = range.s.c; c <= range.e.c; c++) {
+                        cells.push(XLSX.utils.encode_cell({ r, c }));
+                    }
+                }
+            } catch {
+                const m = part.match(/([A-Z]+)(\d+):([A-Z]+)(\d+)/i);
+                if (m) {
+                    const startCol = m[1].toUpperCase();
+                    const startRow = parseInt(m[2]);
+                    const endRow = parseInt(m[4]);
+                    for (let r = startRow; r <= endRow; r++) {
+                        cells.push(`${startCol}${r}`);
+                    }
+                }
+            }
+        } else if (/^[A-Z]+\d+$/i.test(part)) {
+            cells.push(part.toUpperCase());
         }
-        return String(total);
     }
-    // Simple expression evaluation =A1+B1
+    return cells;
+}
+
+function calculateFormula(formula: string): string {
+    const upper = formula.trim().toUpperCase();
+    if (!upper.startsWith('=')) return formula;
+
+    const funcMatch = upper.match(/^=(SUM|AVERAGE|AVG|COUNT|MAX|MIN)\((.+)\)$/);
+    if (funcMatch) {
+        const func = funcMatch[1];
+        const arg = funcMatch[2];
+        const cellRefs = parseRangeCells(arg);
+        const vals: number[] = [];
+        for (const ref of cellRefs) {
+            const raw = sheetGrid.value[ref]?.computed ?? sheetGrid.value[ref]?.value;
+            if (raw !== undefined && raw !== null && raw !== '') {
+                const n = parseFloat(String(raw));
+                if (!isNaN(n)) vals.push(n);
+            }
+        }
+
+        if (func === 'SUM') {
+            const sum = vals.reduce((acc, v) => acc + v, 0);
+            return String(Math.round(sum * 10000) / 10000);
+        }
+        if (func === 'AVERAGE' || func === 'AVG') {
+            if (vals.length === 0) return '0';
+            const avg = vals.reduce((acc, v) => acc + v, 0) / vals.length;
+            return String(Math.round(avg * 10000) / 10000);
+        }
+        if (func === 'COUNT') {
+            return String(vals.length);
+        }
+        if (func === 'MAX') {
+            return vals.length > 0 ? String(Math.max(...vals)) : '0';
+        }
+        if (func === 'MIN') {
+            return vals.length > 0 ? String(Math.min(...vals)) : '0';
+        }
+    }
+
+    // Arithmetic expression evaluation =A1+B1 or =(A1*2)+5
     try {
-        let expr = formula.substring(1);
+        let expr = formula.substring(1).trim();
         expr = expr.replace(/([A-Z]+\d+)/g, (match) => {
             const v = parseFloat(sheetGrid.value[match]?.computed || sheetGrid.value[match]?.value || '0');
             return isNaN(v) ? '0' : String(v);
         });
         // eslint-disable-next-line no-eval
-        return String(Function(`'use strict'; return (${expr})`)());
+        const result = Function(`'use strict'; return (${expr})`)();
+        if (typeof result === 'number' && !isNaN(result)) {
+            return String(Math.round(result * 10000) / 10000);
+        }
+        return String(result ?? '');
     } catch {
         return '#VALUE!';
+    }
+}
+
+function onCellKeydown(e: KeyboardEvent, col: string, row: number) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        const nextRow = e.shiftKey ? Math.max(1, row - 1) : Math.min(rowCount.value, row + 1);
+        const nextRef = `${col}${nextRow}`;
+        selectCell(nextRef);
+        nextTick(() => {
+            const el = document.getElementById(`cell-${nextRef}`) as HTMLInputElement | null;
+            el?.focus();
+            el?.select();
+        });
+    } else if (e.key === 'Tab') {
+        e.preventDefault();
+        const colIdx = columns.value.indexOf(col);
+        if (colIdx !== -1) {
+            const nextColIdx = e.shiftKey ? Math.max(0, colIdx - 1) : Math.min(columns.value.length - 1, colIdx + 1);
+            const nextCol = columns.value[nextColIdx];
+            const nextRef = `${nextCol}${row}`;
+            selectCell(nextRef);
+            nextTick(() => {
+                const el = document.getElementById(`cell-${nextRef}`) as HTMLInputElement | null;
+                el?.focus();
+                el?.select();
+            });
+        }
     }
 }
 
@@ -481,9 +609,8 @@ function addRow() {
 }
 
 function addColumn() {
-    const nextCode = columns.value[columns.value.length - 1].charCodeAt(0) + 1;
-    if (nextCode <= 90) { // Z
-        columns.value.push(String.fromCharCode(nextCode));
+    if (columns.value.length < 50) {
+        columns.value.push(XLSX.utils.encode_col(columns.value.length));
         triggerAutosave();
     }
 }
@@ -770,10 +897,10 @@ function execDocCmd(command: string, value: string | undefined = undefined) {
                     <!-- Canvas Container -->
                     <div class="flex-1 overflow-y-auto p-4 sm:p-8 flex justify-center">
                         <div
+                            ref="docEditorRef"
                             class="w-full max-w-3xl min-h-[700px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg p-8 sm:p-12 text-slate-800 dark:text-slate-100 focus:outline-hidden leading-relaxed"
                             :contenteditable="mode === 'edit'"
-                            @input="e => { docHtml = (e.target as HTMLElement).innerHTML; triggerAutosave(); }"
-                            v-html="docHtml"
+                            @input="onDocInput"
                         ></div>
                     </div>
 
@@ -852,8 +979,10 @@ function execDocCmd(command: string, value: string | undefined = undefined) {
                                         :class="selectedCell === `${col}${r}` ? 'ring-2 ring-blue-500 z-10' : ''"
                                     >
                                         <input
+                                            :id="`cell-${col}${r}`"
                                             :value="selectedCell === `${col}${r}` ? (sheetGrid[`${col}${r}`]?.value || '') : (sheetGrid[`${col}${r}`]?.computed || sheetGrid[`${col}${r}`]?.value || '')"
                                             @input="e => onCellInput(`${col}${r}`, (e.target as HTMLInputElement).value)"
+                                            @keydown="onCellKeydown($event, col, r)"
                                             :disabled="mode === 'view'"
                                             type="text"
                                             class="w-full h-full px-2 py-1.5 text-xs bg-transparent focus:outline-hidden text-slate-800 dark:text-slate-100"

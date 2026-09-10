@@ -117,7 +117,7 @@ function openCreateDoc(type: 'document' | 'spreadsheet' | 'presentation') {
 
 function handleFilePreview(file: FileItem) {
     const ext = (file.extension || '').toLowerCase();
-    if (['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt'].includes(ext)) {
+    if (['docx', 'doc', 'xlsx', 'xls', 'csv', 'tsv', 'ods', 'pptx', 'ppt', 'txt', 'md', 'log'].includes(ext)) {
         activeOfficeFile.value = file;
         isOfficeModalOpen.value = true;
     } else {

@@ -4,11 +4,14 @@ import http from '@/utils/http';
 import type { FileItem } from '@/types';
 import FileCard from '@/components/FileCard.vue';
 import FilePreviewModal from '@/components/FilePreviewModal.vue';
+import OfficeEditorModal from '@/components/OfficeEditorModal.vue';
 import { Star } from 'lucide-vue-next';
 
 const files = ref<FileItem[]>([]);
 const isLoading = ref(true);
 const activePreviewFile = ref<FileItem | null>(null);
+const activeOfficeFile = ref<FileItem | null>(null);
+const isOfficeModalOpen = ref(false);
 
 async function loadStarred() {
     isLoading.value = true;
@@ -26,8 +29,25 @@ onMounted(() => {
     loadStarred();
 });
 
+function handleFileClick(file: FileItem) {
+    const ext = (file.extension || '').toLowerCase();
+    if (['docx', 'doc', 'xlsx', 'xls', 'csv', 'tsv', 'ods', 'pptx', 'ppt', 'txt', 'md', 'log'].includes(ext)) {
+        activeOfficeFile.value = file;
+        isOfficeModalOpen.value = true;
+    } else {
+        activePreviewFile.value = file;
+    }
+}
+
 function handleDownload(file: FileItem) {
     window.open(`/api/v1/files/${file.uuid}/preview`, '_blank');
+}
+
+function handleOfficeSaved(file: FileItem) {
+    const idx = files.value.findIndex(f => f.uuid === file.uuid);
+    if (idx !== -1) {
+        files.value[idx] = file;
+    }
 }
 </script>
 
@@ -43,7 +63,7 @@ function handleDownload(file: FileItem) {
                 v-for="file in files"
                 :key="file.uuid"
                 :file="file"
-                @preview="f => activePreviewFile = f"
+                @preview="handleFileClick"
                 @download="handleDownload"
             />
         </div>
@@ -51,6 +71,12 @@ function handleDownload(file: FileItem) {
         <div v-else-if="!isLoading" class="py-16 text-center text-slate-400 text-xs">
             Belum ada berkas yang ditandai bintang.
         </div>
+
+        <OfficeEditorModal
+            v-model="isOfficeModalOpen"
+            :file="activeOfficeFile"
+            @saved="handleOfficeSaved"
+        />
 
         <FilePreviewModal
             :file="activePreviewFile"
