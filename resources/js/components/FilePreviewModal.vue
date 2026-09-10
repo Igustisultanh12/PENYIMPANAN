@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { FileItem } from '@/types';
+import { downloadFile } from '@/utils/download';
 import { X, Download, Share2, FileText } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -14,8 +15,17 @@ const emit = defineEmits<{
 }>();
 
 const streamUrl = computed(() => {
-    return props.file ? `/api/v1/files/${props.file.uuid}/preview` : '';
+    if (!props.file) return '';
+    const token = localStorage.getItem('mystorage_token');
+    return `/api/v1/files/${props.file.uuid}/preview` + (token ? `?token=${encodeURIComponent(token)}` : '');
 });
+
+function handleModalDownload() {
+    if (props.file) {
+        downloadFile(props.file);
+        emit('download', props.file);
+    }
+}
 </script>
 
 <template>
@@ -43,7 +53,7 @@ const streamUrl = computed(() => {
                         <Share2 class="w-4 h-4" />
                     </button>
                     <button
-                        @click="emit('download', file)"
+                        @click="handleModalDownload"
                         class="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                         title="Unduh"
                     >
@@ -101,7 +111,7 @@ const streamUrl = computed(() => {
                         Format berkas ini ({{ file.extension.toUpperCase() }}) tidak dapat ditampilkan secara langsung di peramban.
                     </p>
                     <button
-                        @click="emit('download', file)"
+                        @click="handleModalDownload"
                         class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-all"
                     >
                         Unduh Berkas Sekarang

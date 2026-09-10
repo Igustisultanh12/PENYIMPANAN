@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed } from 'vue';
 import type { FileItem } from '@/types';
 import {
@@ -74,7 +74,8 @@ const categoryColor = computed(() => {
 });
 
 const previewUrl = computed(() => {
-    return `/api/v1/files/${props.file.uuid}/preview`;
+    const token = localStorage.getItem('mystorage_token');
+    return `/api/v1/files/${props.file.uuid}/preview` + (token ? `?token=${encodeURIComponent(token)}` : '');
 });
 </script>
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import http from '@/utils/http';
+import { downloadFile } from '@/utils/download';
 import type { FileItem } from '@/types';
 import FileCard from '@/components/FileCard.vue';
 import FilePreviewModal from '@/components/FilePreviewModal.vue';
@@ -39,8 +40,8 @@ function handleFileClick(file: FileItem) {
     }
 }
 
-function handleDownload(file: FileItem) {
-    window.open(`/api/v1/files/${file.uuid}/preview`, '_blank');
+async function handleDownload(file: FileItem) {
+    await downloadFile(file);
 }
 
 function handleOfficeSaved(file: FileItem) {

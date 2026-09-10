@@ -5,6 +5,7 @@ import { useDriveStore } from '@/stores/drive';
 import { useUploadStore } from '@/stores/upload';
 import { useI18n } from '@/composables/useI18n';
 import type { FileItem, Folder } from '@/types';
+import { downloadFile } from '@/utils/download';
 import Breadcrumb from '@/components/Breadcrumb.vue';
 import FolderCard from '@/components/FolderCard.vue';
 import FileCard from '@/components/FileCard.vue';
@@ -105,8 +106,8 @@ function openMove(item: FileItem | Folder, type: 'file' | 'folder') {
     activeMoveType.value = type;
 }
 
-function handleDownload(file: FileItem) {
-    window.open(`/api/v1/files/${file.uuid}/preview`, '_blank');
+async function handleDownload(file: FileItem) {
+    await downloadFile(file);
 }
 
 function openCreateDoc(type: 'document' | 'spreadsheet' | 'presentation') {

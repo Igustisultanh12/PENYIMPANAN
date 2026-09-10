@@ -37,6 +37,7 @@ import {
     TableProperties
 } from 'lucide-vue-next';
 import http from '../utils/http';
+import { downloadFile } from '../utils/download';
 import { useUiStore } from '../stores/ui';
 import type { FileItem } from '../types';
 import * as XLSX from '../vendor/xlsx.mjs';
@@ -335,9 +336,9 @@ function switchSheet(sheetName: string) {
     loadSpreadsheetFromWorksheet(currentWorkbook.Sheets[sheetName]);
 }
 
-function downloadOriginalFile() {
+async function downloadOriginalFile() {
     if (!props.file) return;
-    window.open(`/api/v1/files/${props.file.uuid}/preview`, '_blank');
+    await downloadFile(props.file);
 }
 
 function loadDocumentDraft(draft: any, htmlContent?: string) {

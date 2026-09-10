@@ -100,4 +100,69 @@ class AuthorizationAndSecurityTest extends TestCase
         $response = $this->getJson("/api/v1/shares/public/{$share->token}");
         $response->assertStatus(410); // Gone / Expired
     }
+
+    public function test_signed_download_workflow(): void
+    {
+        $user = User::factory()->create(['status' => 'active', 'email_verified_at' => now()]);
+        Storage::fake('local');
+        Storage::disk('local')->put('tenants/test/file.txt', 'Hello world content');
+
+        $file = FileItem::create([
+            'owner_id' => $user->id,
+            'original_name' => 'file.txt',
+            'storage_name' => 'file.txt',
+            'mime_type' => 'text/plain',
+            'extension' => 'txt',
+            'size' => 19,
+            'checksum' => 'checksum123',
+            'disk' => 'local',
+            'storage_path' => 'tenants/test/file.txt',
+            'status' => 'ready',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        // 1. Get signed download url
+        $res = $this->getJson("/api/v1/files/{$file->uuid}/download");
+        $res->assertStatus(200);
+        $downloadUrl = $res->json('download_url');
+        $this->assertNotEmpty($downloadUrl);
+
+        // 2. Download without auth header using signed url
+        $downloadRes = $this->get($downloadUrl);
+        $downloadRes->assertStatus(200);
+    }
+
+    public function test_unauthenticated_preview_does_not_500(): void
+    {
+        $response = $this->get('/api/v1/files/some-fake-uuid/preview');
+        // Should return 401 Unauthenticated instead of 500 Route [login] not defined
+        $response->assertStatus(401);
+    }
+
+    public function test_query_token_authenticates_preview(): void
+    {
+        $user = User::factory()->create(['status' => 'active', 'email_verified_at' => now()]);
+        $token = $user->createToken('test_token')->plainTextToken;
+
+        Storage::fake('local');
+        Storage::disk('local')->put('tenants/test/doc.txt', 'Direct preview content');
+
+        $file = FileItem::create([
+            'owner_id' => $user->id,
+            'original_name' => 'doc.txt',
+            'storage_name' => 'doc.txt',
+            'mime_type' => 'text/plain',
+            'extension' => 'txt',
+            'size' => 22,
+            'checksum' => 'checksum123',
+            'disk' => 'local',
+            'storage_path' => 'tenants/test/doc.txt',
+            'status' => 'ready',
+        ]);
+
+        // Request with ?token= query parameter (simulating img/video/iframe tags)
+        $response = $this->get("/api/v1/files/{$file->uuid}/preview?token={$token}");
+        $response->assertStatus(200);
+    }
 }
