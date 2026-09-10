@@ -99,6 +99,69 @@ class SecurityController extends Controller
         ]);
     }
 
+    public function changeEmail(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $rules = [
+            'new_email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
+        ];
+
+        if (!empty($user->password)) {
+            $rules['password'] = ['required', 'string'];
+        }
+
+        $validated = $request->validate($rules);
+
+        if (!empty($user->password) && !Hash::check($validated['password'], $user->password)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Kata sandi yang Anda masukkan salah.',
+            ], 422);
+        }
+
+        $oldEmail = $user->email;
+        $user->update([
+            'email' => strtolower(trim($validated['new_email'])),
+        ]);
+
+        AuditLog::create([
+            'user_id' => $user->id,
+            'action' => 'security.email_changed',
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+            'metadata' => [
+                'old_email' => $oldEmail,
+                'new_email' => $user->email,
+            ],
+            'created_at' => now(),
+        ]);
+
+        $user->load(['storageUsage', 'profile', 'twoFactor']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Alamat email berhasil diperbarui ke ' . $user->email,
+            'data' => [
+                'uuid' => $user->uuid,
+                'name' => $user->name,
+                'email' => $user->email,
+                'whatsapp' => $user->whatsapp,
+                'role' => $user->role->value ?? (string) $user->role,
+                'status' => $user->status->value ?? (string) $user->status,
+                'email_verified' => $user->hasVerifiedEmail(),
+                'avatar_url' => $user->avatar_url,
+                'two_factor_enabled' => (bool) ($user->twoFactor?->is_enabled),
+                'storage' => [
+                    'used_bytes' => $user->storageUsage?->total_bytes_used ?? 0,
+                    'quota_bytes' => $user->storageUsage?->quota_bytes ?? 10737418240,
+                    'usage_percentage' => $user->storageUsage?->usage_percentage ?? 0,
+                ],
+                'profile' => $user->profile,
+            ],
+        ]);
+    }
+
     public function setupTwoFactor(Request $request): JsonResponse
     {
         $user = $request->user();

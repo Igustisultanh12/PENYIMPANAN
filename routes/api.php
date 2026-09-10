@@ -116,6 +116,7 @@ Route::prefix('v1')->group(function () {
                 Route::get('sessions', [SecurityController::class, 'sessions']);
                 Route::post('logout-other-devices', [SecurityController::class, 'logoutOtherDevices']);
                 Route::post('change-password', [SecurityController::class, 'changePassword']);
+                Route::post('change-email', [SecurityController::class, 'changeEmail']);
                 Route::post('2fa/setup', [SecurityController::class, 'setupTwoFactor']);
                 Route::post('2fa/confirm', [SecurityController::class, 'confirmTwoFactor']);
                 Route::post('2fa/disable', [SecurityController::class, 'disableTwoFactor']);

@@ -16,6 +16,9 @@ import {
     ArrowRight,
     RefreshCw,
     Save,
+    Edit2,
+    Check,
+    X,
 } from 'lucide-vue-next';
 
 const auth = useAuthStore();
@@ -27,6 +30,53 @@ const email = ref('');
 const timezone = ref('Asia/Jakarta');
 const locale = ref('id');
 const isSaving = ref(false);
+
+// Change Email Modal State
+const isEmailModalOpen = ref(false);
+const newEmail = ref('');
+const emailPassword = ref('');
+const isUpdatingEmail = ref(false);
+
+function openEmailModal() {
+    newEmail.value = '';
+    emailPassword.value = '';
+    isEmailModalOpen.value = true;
+}
+
+function closeEmailModal() {
+    isEmailModalOpen.value = false;
+    newEmail.value = '';
+    emailPassword.value = '';
+}
+
+async function handleChangeEmail() {
+    if (!newEmail.value.trim() || !newEmail.value.includes('@')) {
+        ui.notify('Format alamat email baru tidak valid.', 'warning');
+        return;
+    }
+
+    isUpdatingEmail.value = true;
+    try {
+        const res = await http.post('/security/change-email', {
+            new_email: newEmail.value.trim(),
+            password: emailPassword.value,
+        });
+
+        if (res.data?.data) {
+            auth.user = {
+                ...auth.user,
+                ...res.data.data,
+            };
+            email.value = res.data.data.email;
+        }
+        ui.notify(res.data?.message || 'Alamat email berhasil diperbarui.', 'success');
+        closeEmailModal();
+    } catch (err: any) {
+        ui.notify(err.response?.data?.message || 'Gagal memperbarui alamat email.', 'error');
+    } finally {
+        isUpdatingEmail.value = false;
+    }
+}
 
 function syncUserData() {
     if (auth.user) {
@@ -143,27 +193,40 @@ function setDarkMode(val: boolean) {
                     />
                 </div>
 
-                <!-- Alamat Email (Terkunci untuk keamanan) -->
+                <!-- Alamat Email Akun -->
                 <div>
                     <div class="flex items-center justify-between mb-1.5">
                         <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                             <Mail class="w-3.5 h-3.5 text-slate-400" />
                             Alamat Email Akun
                         </label>
-                        <span class="inline-flex items-center gap-1 text-[10px] text-slate-400 font-medium">
-                            <Lock class="w-3 h-3 text-slate-400" />
-                            Terkunci (Identitas Login)
-                        </span>
+                        <button
+                            type="button"
+                            @click="openEmailModal"
+                            class="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:underline cursor-pointer"
+                        >
+                            <Edit2 class="w-3 h-3" />
+                            <span>Ganti Email</span>
+                        </button>
                     </div>
-                    <input
-                        :value="email"
-                        type="email"
-                        readonly
-                        placeholder="Memuat alamat email..."
-                        class="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 outline-none cursor-default font-mono"
-                    />
+                    <div class="flex items-center gap-2">
+                        <input
+                            :value="email"
+                            type="email"
+                            readonly
+                            placeholder="Memuat alamat email..."
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 outline-none cursor-default font-mono"
+                        />
+                        <button
+                            type="button"
+                            @click="openEmailModal"
+                            class="px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 shrink-0 transition-colors cursor-pointer"
+                        >
+                            Ganti
+                        </button>
+                    </div>
                     <p class="text-[10px] text-slate-400 mt-1">
-                        Alamat email digunakan sebagai kredensial login utama dan tidak dapat diubah sembarangan demi keamanan akun.
+                        Alamat email digunakan sebagai kredensial login utama. Klik tombol <strong>Ganti</strong> untuk memperbarui email dengan verifikasi kata sandi.
                     </p>
                 </div>
 
@@ -260,6 +323,90 @@ function setDarkMode(val: boolean) {
                     </button>
                 </div>
             </form>
+        </div>
+
+        <!-- Change Email Modal -->
+        <div
+            v-if="isEmailModalOpen"
+            class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs"
+        >
+            <div class="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4">
+                <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                    <div class="flex items-center gap-2.5">
+                        <div class="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600">
+                            <Mail class="w-4 h-4" />
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-bold text-slate-900 dark:text-white">Ganti Alamat Email</h3>
+                            <p class="text-[11px] text-slate-500 dark:text-slate-400">Perbarui email login akun MyStorage Anda</p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        @click="closeEmailModal"
+                        class="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                    >
+                        <X class="w-4 h-4" />
+                    </button>
+                </div>
+
+                <div class="space-y-3.5">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 mb-1">Email Saat Ini</label>
+                        <div class="px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/60 text-xs font-mono text-slate-600 dark:text-slate-300">
+                            {{ email }}
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                            Alamat Email Baru
+                        </label>
+                        <input
+                            v-model="newEmail"
+                            type="email"
+                            required
+                            placeholder="nama@domainbaru.com"
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        />
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                            Kata Sandi Saat Ini (Verifikasi Keamanan)
+                        </label>
+                        <input
+                            v-model="emailPassword"
+                            type="password"
+                            placeholder="Masukkan kata sandi akun Anda"
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono"
+                        />
+                        <p class="text-[10px] text-slate-400 mt-1">
+                            Diperlukan untuk memverifikasi bahwa perubahan dilakukan oleh pemilik akun yang sah.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                        type="button"
+                        @click="closeEmailModal"
+                        class="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                    >
+                        Batal
+                    </button>
+                    <button
+                        type="button"
+                        @click="handleChangeEmail"
+                        :disabled="isUpdatingEmail || !newEmail"
+                        class="inline-flex items-center gap-1.5 px-4.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-md shadow-blue-500/20 disabled:opacity-50 transition-all cursor-pointer"
+                    >
+                        <RefreshCw v-if="isUpdatingEmail" class="w-3.5 h-3.5 animate-spin" />
+                        <Check v-else class="w-3.5 h-3.5" />
+                        <span>{{ isUpdatingEmail ? 'Menyimpan...' : 'Perbarui Email' }}</span>
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 </template>

@@ -88,4 +88,48 @@ class AuthenticationTest extends TestCase
             'whatsapp' => '08123456789',
         ]);
     }
+
+    public function test_user_can_change_email(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'oldemail@example.com',
+            'password' => bcrypt('SecurePassword123!'),
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->postJson('/api/v1/security/change-email', [
+                'new_email' => 'newemail@example.com',
+                'password' => 'SecurePassword123!',
+            ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.email', 'newemail@example.com');
+
+        $this->assertDatabaseHas('users', [
+            'id' => $user->id,
+            'email' => 'newemail@example.com',
+        ]);
+    }
+
+    public function test_user_cannot_change_email_with_wrong_password(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'user@example.com',
+            'password' => bcrypt('SecurePassword123!'),
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->postJson('/api/v1/security/change-email', [
+                'new_email' => 'other@example.com',
+                'password' => 'WrongPassword!',
+            ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('success', false);
+    }
 }
