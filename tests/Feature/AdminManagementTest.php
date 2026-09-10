@@ -144,4 +144,22 @@ class AdminManagementTest extends TestCase
 
         $this->assertEquals('25', Setting::get('default_storage_quota_gb'));
     }
+
+    public function test_speedtest_fallback_works_when_cli_unavailable(): void
+    {
+        // Even without system CLI commands, speedtest should fall back to built-in benchmark
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->postJson('/api/v1/admin/system/speedtest');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure([
+                'data' => [
+                    'download_mbps',
+                    'upload_mbps',
+                    'ping_ms',
+                    'engine',
+                ],
+            ]);
+    }
 }

@@ -141,9 +141,12 @@ class AdminSystemController extends Controller
             return $result;
         }
 
-        // 1. Check if smartctl is available
-        $whichSmartctl = @shell_exec('which smartctl 2>/dev/null');
-        $hasSmartctl = !empty(trim((string) $whichSmartctl));
+        // 1. Check if command execution and smartctl is available
+        $hasSmartctl = false;
+        if ($this->canExecuteCommands()) {
+            $whichSmartctl = $this->runCommand('which smartctl 2>/dev/null');
+            $hasSmartctl = !empty($whichSmartctl);
+        }
         $result['smartctl_installed'] = $hasSmartctl;
 
         // 2. Scan for candidate block devices
@@ -172,10 +175,10 @@ class AdminSystemController extends Controller
 
         if ($hasSmartctl && $targetDevice) {
             // Execute smartctl in JSON mode or text mode
-            $output = @shell_exec("sudo smartctl -a {$targetDevice} --json 2>/dev/null") 
-                   ?: @shell_exec("smartctl -a {$targetDevice} --json 2>/dev/null")
-                   ?: @shell_exec("sudo smartctl -a {$targetDevice} 2>/dev/null")
-                   ?: @shell_exec("smartctl -a {$targetDevice} 2>/dev/null");
+            $output = $this->runCommand("sudo smartctl -a {$targetDevice} --json 2>/dev/null") 
+                   ?: $this->runCommand("smartctl -a {$targetDevice} --json 2>/dev/null")
+                   ?: $this->runCommand("sudo smartctl -a {$targetDevice} 2>/dev/null")
+                   ?: $this->runCommand("smartctl -a {$targetDevice} 2>/dev/null");
 
             if ($output) {
                 $result['detected'] = true;
@@ -186,6 +189,19 @@ class AdminSystemController extends Controller
                     $this->parseSmartctlJson($json, $result);
                 } else {
                     $this->parseSmartctlText($output, $result);
+                }
+            }
+        }
+
+        // Direct sysfs disk model inspection fallback without needing shell execution
+        if (!$result['detected'] && $targetDevice) {
+            $devName = basename($targetDevice);
+            $sysModelPath = "/sys/class/block/{$devName}/device/model";
+            if (@file_exists($sysModelPath)) {
+                $sysModel = trim((string) @file_get_contents($sysModelPath));
+                if (!empty($sysModel)) {
+                    $result['model'] = $sysModel;
+                    $result['detected'] = true;
                 }
             }
         }
@@ -309,12 +325,103 @@ class AdminSystemController extends Controller
     }
 
     /**
+     * Check if command execution is allowed by PHP configuration.
+     */
+    protected function canExecuteCommands(): bool
+    {
+        $rawDisabled = (string) ini_get('disable_functions');
+        $disabled = array_map('trim', explode(',', strtolower($rawDisabled)));
+
+        if (function_exists('shell_exec') && !in_array('shell_exec', $disabled, true)) {
+            return true;
+        }
+        if (function_exists('exec') && !in_array('exec', $disabled, true)) {
+            return true;
+        }
+        if (function_exists('proc_open') && !in_array('proc_open', $disabled, true)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Safely run a shell command without throwing fatal errors if functions are disabled.
+     */
+    protected function runCommand(string $cmd): ?string
+    {
+        $rawDisabled = (string) ini_get('disable_functions');
+        $disabled = array_map('trim', explode(',', strtolower($rawDisabled)));
+
+        // 1. Try shell_exec
+        if (function_exists('shell_exec') && !in_array('shell_exec', $disabled, true)) {
+            try {
+                $output = @\shell_exec($cmd);
+                if ($output !== null && $output !== false) {
+                    $trimmed = trim((string) $output);
+                    if ($trimmed !== '') {
+                        return $trimmed;
+                    }
+                }
+            } catch (\Throwable $e) {
+                // Ignore and try fallback
+            }
+        }
+
+        // 2. Try exec
+        if (function_exists('exec') && !in_array('exec', $disabled, true)) {
+            try {
+                $lines = [];
+                $returnCode = 0;
+                @\exec($cmd, $lines, $returnCode);
+                if ($returnCode === 0 && !empty($lines)) {
+                    return trim(implode("\n", $lines));
+                }
+            } catch (\Throwable $e) {
+                // Ignore and try fallback
+            }
+        }
+
+        // 3. Try proc_open
+        if (function_exists('proc_open') && !in_array('proc_open', $disabled, true)) {
+            try {
+                $descriptors = [
+                    0 => ['pipe', 'r'],
+                    1 => ['pipe', 'w'],
+                    2 => ['pipe', 'w'],
+                ];
+                $pipes = [];
+                $proc = @\proc_open($cmd, $descriptors, $pipes);
+                if (is_resource($proc)) {
+                    fclose($pipes[0]);
+                    $stdout = stream_get_contents($pipes[1]);
+                    fclose($pipes[1]);
+                    fclose($pipes[2]);
+                    proc_close($proc);
+                    $trimmed = trim((string) $stdout);
+                    if ($trimmed !== '') {
+                        return $trimmed;
+                    }
+                }
+            } catch (\Throwable $e) {
+                // Ignore
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Try Ookla official speedtest CLI.
      */
     protected function tryOoklaSpeedtest(): ?array
     {
+        if (!$this->canExecuteCommands()) {
+            return null;
+        }
+
         $cmd = 'speedtest --accept-license --accept-gdpr --format=json 2>/dev/null';
-        $output = @shell_exec($cmd);
+        $output = $this->runCommand($cmd);
         if (!$output) return null;
 
         $json = @json_decode($output, true);
@@ -346,8 +453,12 @@ class AdminSystemController extends Controller
      */
     protected function trySpeedtestCli(): ?array
     {
+        if (!$this->canExecuteCommands()) {
+            return null;
+        }
+
         $cmd = 'speedtest-cli --json 2>/dev/null';
-        $output = @shell_exec($cmd);
+        $output = $this->runCommand($cmd);
         if (!$output) return null;
 
         $json = @json_decode($output, true);
@@ -381,11 +492,27 @@ class AdminSystemController extends Controller
         // 1. Measure Latency / Ping
         $startPing = microtime(true);
         $pingTarget = 'https://1.1.1.1/cdn-cgi/trace';
-        $context = stream_context_create([
-            'http' => ['timeout' => 5],
-            'ssl'  => ['verify_peer' => false, 'verify_peer_name' => false],
-        ]);
-        $traceContent = @file_get_contents($pingTarget, false, $context);
+        $traceContent = null;
+
+        try {
+            if (class_exists('\Illuminate\Support\Facades\Http')) {
+                $response = \Illuminate\Support\Facades\Http::timeout(5)->withoutVerifying()->get($pingTarget);
+                if ($response->successful()) {
+                    $traceContent = $response->body();
+                }
+            }
+        } catch (\Throwable $e) {
+            // Fallback
+        }
+
+        if (!$traceContent) {
+            $context = stream_context_create([
+                'http' => ['timeout' => 5],
+                'ssl'  => ['verify_peer' => false, 'verify_peer_name' => false],
+            ]);
+            $traceContent = @file_get_contents($pingTarget, false, $context);
+        }
+
         $pingMs = round((microtime(true) - $startPing) * 1000, 1);
 
         $clientIp = null;
@@ -400,9 +527,29 @@ class AdminSystemController extends Controller
         // 2. Measure Download Throughput (10 MB payload from Cloudflare speed test CDN)
         $testUrl = 'https://speed.cloudflare.com/__down?bytes=10000000';
         $startDl = microtime(true);
-        $dlContent = @file_get_contents($testUrl, false, $context);
+        $bytesDownloaded = 0;
+
+        try {
+            if (class_exists('\Illuminate\Support\Facades\Http')) {
+                $response = \Illuminate\Support\Facades\Http::timeout(15)->withoutVerifying()->get($testUrl);
+                if ($response->successful()) {
+                    $bytesDownloaded = strlen($response->body());
+                }
+            }
+        } catch (\Throwable $e) {
+            // Fallback
+        }
+
+        if ($bytesDownloaded === 0) {
+            $context = stream_context_create([
+                'http' => ['timeout' => 15],
+                'ssl'  => ['verify_peer' => false, 'verify_peer_name' => false],
+            ]);
+            $dlContent = @file_get_contents($testUrl, false, $context);
+            $bytesDownloaded = strlen($dlContent ?: '');
+        }
+
         $elapsedDl = max(0.001, microtime(true) - $startDl);
-        $bytesDownloaded = strlen($dlContent ?: '');
 
         if ($bytesDownloaded > 500000) {
             $downloadMbps = round(($bytesDownloaded * 8) / ($elapsedDl * 1000000), 2);
@@ -427,7 +574,7 @@ class AdminSystemController extends Controller
             'server_location' => 'Edge Server',
             'result_url' => null,
             'timestamp' => now()->toIso8601String(),
-            'install_instructions' => 'Untuk hasil Ookla resmi berakurasi tinggi di server Armbian, jalankan: "sudo apt-get install -y speedtest-cli" atau pasang paket Ookla Speedtest resmi.',
+            'install_instructions' => 'Untuk hasil Ookla resmi di Armbian: buka aaPanel > PHP > Disabled functions > hapus "shell_exec", lalu jalankan "sudo apt-get install -y speedtest-cli".',
         ];
     }
 
