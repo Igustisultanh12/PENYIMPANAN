@@ -171,6 +171,57 @@ class AuthController extends Controller
         ]);
     }
 
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'whatsapp' => ['nullable', 'string', 'max:30'],
+            'timezone' => ['nullable', 'string', 'max:50'],
+            'locale' => ['nullable', 'string', 'max:10'],
+        ]);
+
+        $user->update([
+            'name' => $validated['name'],
+            'whatsapp' => $validated['whatsapp'] ?? $user->whatsapp,
+        ]);
+
+        if (isset($validated['timezone']) || isset($validated['locale'])) {
+            $user->profile()->updateOrCreate(
+                ['user_id' => $user->id],
+                [
+                    'timezone' => $validated['timezone'] ?? 'Asia/Jakarta',
+                    'locale' => $validated['locale'] ?? 'id',
+                ]
+            );
+        }
+
+        $user->load(['storageUsage', 'profile', 'twoFactor']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Profil berhasil diperbarui.',
+            'data' => [
+                'uuid' => $user->uuid,
+                'name' => $user->name,
+                'email' => $user->email,
+                'whatsapp' => $user->whatsapp,
+                'role' => $user->role->value,
+                'status' => $user->status->value,
+                'email_verified' => $user->hasVerifiedEmail(),
+                'avatar_url' => $user->avatar_url,
+                'two_factor_enabled' => (bool) ($user->twoFactor?->is_enabled),
+                'storage' => [
+                    'used_bytes' => $user->storageUsage?->total_bytes_used ?? 0,
+                    'quota_bytes' => $user->storageUsage?->quota_bytes ?? 10737418240,
+                    'usage_percentage' => $user->storageUsage?->usage_percentage ?? 0,
+                ],
+                'profile' => $user->profile,
+            ],
+        ]);
+    }
+
     public function verifyEmail(string $token): JsonResponse
     {
         $hashedToken = hash('sha256', $token);

@@ -59,4 +59,33 @@ class AuthenticationTest extends TestCase
                 ],
             ]);
     }
+
+    public function test_user_can_update_profile(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'sultan@example.com',
+            'name' => 'Old Name',
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->putJson('/api/v1/profile', [
+                'name' => 'I Gusti Sultan',
+                'whatsapp' => '08123456789',
+                'timezone' => 'Asia/Jakarta',
+                'locale' => 'id',
+            ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.name', 'I Gusti Sultan')
+            ->assertJsonPath('data.whatsapp', '08123456789');
+
+        $this->assertDatabaseHas('users', [
+            'id' => $user->id,
+            'name' => 'I Gusti Sultan',
+            'whatsapp' => '08123456789',
+        ]);
+    }
 }

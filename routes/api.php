@@ -46,6 +46,7 @@ Route::prefix('v1')->group(function () {
         // Session & Auth Profile
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::get('me', [AuthController::class, 'me']);
+        Route::put('profile', [AuthController::class, 'updateProfile']);
 
         // Administrative Management Routes
         Route::prefix('admin')->group(function () {
