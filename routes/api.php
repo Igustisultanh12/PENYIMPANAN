@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\AdminSettingController;
+use App\Http\Controllers\Api\V1\Admin\AdminSystemController;
+use App\Http\Controllers\Api\V1\Admin\AdminUserController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\DeviceController;
 use App\Http\Controllers\Api\V1\FileController;
@@ -47,6 +49,16 @@ Route::prefix('v1')->group(function () {
 
         // Administrative Management Routes
         Route::prefix('admin')->group(function () {
+            // System Diagnostics: SSD Health & Ookla Speedtest
+            Route::get('system/ssd-health', [AdminSystemController::class, 'getSsdHealth']);
+            Route::post('system/speedtest', [AdminSystemController::class, 'runSpeedtest']);
+
+            // User Management & Storage Quotas
+            Route::get('users', [AdminUserController::class, 'index']);
+            Route::post('users/{id}/quota', [AdminUserController::class, 'updateQuota']);
+            Route::post('users/{id}/recalculate', [AdminUserController::class, 'recalculate']);
+
+            // Core Settings
             Route::get('settings', [AdminSettingController::class, 'getSettings']);
             Route::post('settings', [AdminSettingController::class, 'updateSettings']);
             Route::get('whatsapp/status', [AdminSettingController::class, 'getWhatsAppStatus']);

@@ -52,10 +52,13 @@ class RegisterAction
             'timezone' => 'Asia/Jakarta',
         ]);
 
-        // Initialize default storage quota (10GB)
+        // Initialize default storage quota from admin settings
+        $defaultQuotaGb = (float) \App\Models\Setting::get('default_storage_quota_gb', 10);
+        $defaultQuotaBytes = (int) round($defaultQuotaGb * 1024 * 1024 * 1024);
+
         StorageUsage::create([
             'user_id' => $user->id,
-            'quota_bytes' => 10737418240,
+            'quota_bytes' => $defaultQuotaBytes,
         ]);
 
         // Send queued verification notification

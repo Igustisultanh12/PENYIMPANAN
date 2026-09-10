@@ -55,7 +55,7 @@ const navItems = computed(() => {
     ];
 
     if (auth.user?.role === 'admin' || auth.user?.role === 'super_admin') {
-        items.push({ name: 'Admin Gateway', path: '/admin/settings', icon: Server });
+        items.push({ name: 'Admin Panel', path: '/admin/settings', icon: Server });
     }
 
     return items;

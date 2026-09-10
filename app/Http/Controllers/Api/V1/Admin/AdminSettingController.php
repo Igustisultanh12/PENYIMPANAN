@@ -39,6 +39,9 @@ class AdminSettingController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
+                // Storage Defaults
+                'default_storage_quota_gb' => Setting::get('default_storage_quota_gb', '10'),
+
                 // WhatsApp Gateway Settings
                 'wa_notifications_enabled' => Setting::get('wa_notifications_enabled', '1'),
                 'wa_gateway_url'           => Setting::get('wa_gateway_url', 'http://127.0.0.1:3000'),
@@ -66,6 +69,7 @@ class AdminSettingController extends Controller
         }
 
         $validated = $request->validate([
+            'default_storage_quota_gb' => ['nullable', 'numeric', 'min:0.1', 'max:1000000'],
             'wa_notifications_enabled' => ['nullable', 'in:0,1'],
             'wa_gateway_url'           => ['nullable', 'string', 'max:255'],
             'mail_mailer'              => ['nullable', 'string', 'max:50'],

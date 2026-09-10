@@ -104,9 +104,12 @@ class GoogleAuthAction
             'timezone' => 'Asia/Jakarta',
         ]);
 
+        $defaultQuotaGb = (float) \App\Models\Setting::get('default_storage_quota_gb', 10);
+        $defaultQuotaBytes = (int) round($defaultQuotaGb * 1024 * 1024 * 1024);
+
         StorageUsage::create([
             'user_id' => $user->id,
-            'quota_bytes' => 10737418240, // 10 GB
+            'quota_bytes' => $defaultQuotaBytes,
         ]);
 
         AuditLog::create([
